@@ -1,1 +1,130 @@
-# FocusPhone
+# Focus
+
+An Android launcher that replaces your home screen and actually stops you
+opening the apps you told it to stop you opening.
+
+It is a self-binding tool. You are deliberately making things harder for your
+future self, so getting *into* the settings costs you a trigonometry problem,
+and loosening any restriction takes 24 hours. Making a restriction stricter is
+instant and free.
+
+- **Blocked apps** close the moment they open, and you land back on the home
+  screen with a note saying why.
+- **Daily time limits** are counted to the second. When the allowance runs
+  out, the app closes.
+- **In-app feeds** — Reels, Shorts, TikTok's For You — get closed without
+  blocking the rest of the app.
+- **Websites** are blocked by a local DNS filter, so it works in every browser
+  and app at once.
+- **A daily agenda** sits on the home screen. Leave a day's tasks unfinished
+  and the apps you flagged as social are locked for the whole of the next day.
+- **Daily reading** — open an EPUB, answer five comprehension questions about
+  what you actually read. Fail, and restricted apps get no allowance tomorrow.
+
+---
+
+## Install
+
+Download the APK from the [latest release](../../releases/latest) and open it
+on your phone.
+
+**Android will warn you that the file is unsafe.** That is expected: this is
+signed with a debug key, not a Play Store certificate. Tap through it
+(*More details* → *Install anyway*, or *Install without scanning*).
+
+---
+
+## Permissions — read this, or the app will do nothing
+
+Focus installs cleanly, opens, looks finished, and blocks **absolutely
+nothing** until you complete step 2. This is the single thing everybody gets
+wrong. The app's own setup screen tracks all of it live, and tells you exactly
+what is missing.
+
+### 1. Make it your home screen
+
+Press the home button and choose **Focus**, then **Always**.
+
+This is not cosmetic. Blocking an app works by sending you home, and home is
+where the explanation appears.
+
+### 2. Turn on the accessibility service — this is what does the blocking
+
+**Settings → Accessibility → Installed apps → Focus → turn on.**
+
+> **If the toggle is greyed out and unpressable, this is the bit that catches
+> everyone.** Android restricts accessibility for apps installed from a file.
+> To lift it:
+>
+> **Settings → Apps → Focus → ⋮ (three dots, top right) → Allow restricted
+> settings.**
+>
+> Then go back and the toggle will work.
+
+The service only ever sees the apps you have restricted or flagged. Banking,
+messaging and everything else you have not opted in is invisible to it — the
+system enforces that list, not the app.
+
+### 3. Grant usage access — recommended
+
+**Settings → Apps → Special access → Usage access → Focus → Allow.**
+
+Time limits work without this, because Focus keeps its own record. Granting it
+makes them more accurate: it lets Focus notice when you switch to an app it
+does not watch, and recover time that passed while the service was off.
+
+### 4. Optional extras
+
+| Feature | What it needs |
+|---|---|
+| Website blocking | Tap **start site filter** in *sites and in-app sections*, and allow the VPN prompt. Android only permits one VPN, so this cannot run alongside a commercial VPN. |
+| Reading quizzes | An [Anthropic API key](https://console.anthropic.com/) pasted into settings. Stored on your device only, never sent anywhere but Anthropic, never shown back in full. |
+| Hard blocking | Device Owner — see [SETUP.md](SETUP.md). Requires a factory reset. |
+
+### 5. Now actually set some rules
+
+**settings → choose apps.** Nothing is restricted by default.
+
+Getting into settings requires solving one maths problem or logic riddle. A
+wrong answer replaces it with a different question — you cannot retry the same
+one until you guess it.
+
+---
+
+## What this does not do
+
+Being honest about this matters more than sounding impressive.
+
+- **This is friction, not a prison.** You can turn the accessibility service
+  off in two taps and everything stops. That is deliberate: a tool you cannot
+  escape is a tool you cannot trust with your phone. It works because
+  reaching for that toggle is a decision you have to make consciously.
+- **A restricted app will visibly flash up** for a fraction of a second before
+  closing. Only Device Owner can stop a launch outright.
+- **Section blocking breaks** when Instagram or YouTube redesign their feeds.
+  The detection hints are editable inside the app so you can fix it yourself
+  without waiting for a new build.
+- **Time is counted while the service is running.** Turn it off and the
+  minutes that pass are only recovered if usage access is granted.
+- **Nothing without a rule is ever touched.** Phone, messages, maps, camera,
+  banking and transport keep working no matter what — including when you fail
+  a reading quiz or leave your whole agenda unfinished. There is no code path
+  by which this app can leave your phone unusable in an emergency.
+
+---
+
+## Build from source
+
+Requires JDK 17 or 21 and the Android SDK.
+
+```sh
+./gradlew assembleRelease     # app/build/outputs/apk/release/app-release.apk
+```
+
+Build the debug variant if you are developing, but **install the release build
+on a real phone** — Compose without R8 and its baseline profile is several
+times slower, which on a mid-range device is the difference between a launcher
+that feels instant and one that visibly stutters.
+
+[SPEC.md](SPEC.md) is the source of truth for behaviour. Read it before
+changing anything.
