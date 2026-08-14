@@ -67,6 +67,16 @@
             android:exported="false"
             android:screenOrientation="portrait" />
 
+        <activity
+            android:name=".TodoActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".AppearanceActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
         <receiver
             android:name=".policy.BootReceiver"
             android:exported="true">
@@ -88,7 +98,7 @@
         </receiver>
 
         <service
-            android:name=".policy.SectionBlockerService"
+            android:name=".policy.FocusGuardService"
             android:exported="false"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>

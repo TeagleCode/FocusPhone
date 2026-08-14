@@ -28,7 +28,7 @@ import com.focus.launcher.data.BlockedSection
 import com.focus.launcher.data.PendingUnlock
 import com.focus.launcher.data.PolicyStore
 import com.focus.launcher.data.UnlockKind
-import com.focus.launcher.policy.SectionBlockerService
+import com.focus.launcher.policy.FocusGuardService
 import com.focus.launcher.policy.SiteBlockerVpnService
 import com.focus.launcher.ui.Focus
 
@@ -64,7 +64,7 @@ private fun BlocklistScreen() {
             onSave = { updated ->
                 store.upsertSection(updated)
                 sections = store.blockedSections()
-                SectionBlockerService.refreshScope()
+                FocusGuardService.refreshScope()
                 editingHints = null
             }
         )
@@ -179,7 +179,17 @@ private fun BlocklistScreen() {
 
         Spacer(Modifier.height(16.dp))
 
-        val running = SiteBlockerVpnService.isRunning()
+        // The service starts asynchronously, so its state is re-read on a tick
+        // rather than once at first composition — otherwise the button keeps
+        // saying "start" after the filter is already up.
+        var vpnTick by remember { mutableStateOf(0) }
+        LaunchedEffect(Unit) {
+            while (true) {
+                kotlinx.coroutines.delay(1_000)
+                vpnTick++
+            }
+        }
+        val running = remember(vpnTick) { SiteBlockerVpnService.isRunning() }
         Text(
             if (running) "stop site filter" else "start site filter",
             color = Focus.Primary,
@@ -223,7 +233,7 @@ private fun BlocklistScreen() {
             lineHeight = 20.sp
         )
 
-        if (!SectionBlockerService.isEnabled(context)) {
+        if (!FocusGuardService.isEnabled(context)) {
             Spacer(Modifier.height(12.dp))
             Text(
                 "The accessibility service is off, so nothing here is active yet. " +
@@ -236,7 +246,7 @@ private fun BlocklistScreen() {
 
         Spacer(Modifier.height(18.dp))
 
-        SectionBlockerService.DEFAULT_SECTIONS.forEach { preset ->
+        FocusGuardService.DEFAULT_SECTIONS.forEach { preset ->
             val active = sections.firstOrNull { it.packageName == preset.packageName }
             SectionRow(
                 section = active ?: preset,
@@ -251,7 +261,7 @@ private fun BlocklistScreen() {
                     sections = next
                     // Without this the service keeps its old scope until it
                     // reconnects, so a newly added app would go unwatched.
-                    SectionBlockerService.refreshScope()
+                    FocusGuardService.refreshScope()
                 },
                 onEditHints = { editingHints = active ?: preset }
             )

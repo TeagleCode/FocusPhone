@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">Focus</string>
-    <string name="a11y_description">Watches only the apps you explicitly select, to block short-form video sections. No other app is monitored.</string>
+    <string name="a11y_description">Closes the apps you have restricted, keeps track of how long you have used them, and blocks short-form video feeds. It watches only the apps you explicitly select — no other app is monitored.</string>
 </resources>

@@ -1,31 +1,64 @@
 package com.focus.launcher.policy
 
+import android.app.AppOpsManager
 import android.app.admin.DevicePolicyManager
 import android.app.usage.UsageStatsManager
 import android.content.ComponentName
 import android.content.Context
+import android.os.Process
 import com.focus.launcher.data.AppRule
+import com.focus.launcher.data.BlockReason
 import com.focus.launcher.data.PolicyStore
 import com.focus.launcher.data.RestrictionType
+import com.focus.launcher.data.TodoStore
 import com.focus.launcher.data.UnlockKind
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-/** Why enforcement is not currently possible, or null when it is. */
-enum class EnforcementBlocker { NOT_DEVICE_OWNER, NO_USAGE_ACCESS }
+/**
+ * Which enforcement layers are currently available.
+ *
+ * There are two, and they are independent. The accessibility guard works on
+ * any phone and closes a restricted app the moment it opens. Device Owner is
+ * stronger — the system itself refuses to launch a suspended package — but it
+ * can only be provisioned by ADB on a device with no accounts, so most
+ * installs will never have it. Enforcement is real as long as either is on.
+ */
+data class EnforcementStatus(
+    val deviceOwner: Boolean,
+    val guardEnabled: Boolean,
+    val usageAccess: Boolean
+) {
+    val canBlock get() = deviceOwner || guardEnabled
+}
 
 /** What the launcher should display next to an app. */
 sealed interface AppState {
     data object Unrestricted : AppState
-    data object Blocked : AppState
+    data class Blocked(val reason: BlockReason) : AppState
     data class Remaining(val minutes: Int) : AppState
 }
 
 /**
- * Decides which packages should currently be suspended, and applies that
- * decision through DevicePolicyManager.
+ * Everything needed to decide the status of any package, read once.
+ *
+ * Screens list many apps at a time and the guard service checks a package on
+ * every window change, so the inputs are gathered in a single pass instead of
+ * being re-read per row.
+ */
+data class PolicySnapshot(
+    val rules: Map<String, AppRule>,
+    val usageMs: Map<String, Long>,
+    val social: Set<String>,
+    val readingPenalty: Boolean,
+    val taskPenalty: Boolean
+)
+
+/**
+ * Decides what is restricted right now, and applies that decision through
+ * DevicePolicyManager when it is available.
  *
  * Suspension (as opposed to hiding) is deliberate: the app stays visible and
  * Android shows a system dialog explaining it is unavailable, which is a
@@ -33,76 +66,142 @@ sealed interface AppState {
  */
 class Enforcer(private val context: Context) {
 
-    private val store = PolicyStore(context)
+    private val app = context.applicationContext
+    private val store = PolicyStore(app)
+    private val todos = TodoStore(app)
+    private val ledger = UsageLedger(app)
     private val dpm =
-        context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-    private val admin = ComponentName(context, FocusDeviceAdminReceiver::class.java)
+        app.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+    private val admin = ComponentName(app, FocusDeviceAdminReceiver::class.java)
     private val usage =
-        context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+        app.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
 
-    fun isDeviceOwner(): Boolean = dpm.isDeviceOwnerApp(context.packageName)
+    fun isDeviceOwner(): Boolean = dpm.isDeviceOwnerApp(app.packageName)
 
     /**
-     * Usage access is a special-access permission that cannot be requested
-     * from inside the app, and querying without it silently returns nothing —
-     * which would look exactly like "you used no apps today".
+     * Checked through AppOps rather than by running a query and seeing whether
+     * anything comes back: the query costs real time, and an empty result is
+     * ambiguous between "not permitted" and "nothing used yet today".
      */
-    fun hasUsageAccess(): Boolean {
-        val start = System.currentTimeMillis() - 24 * 60 * 60 * 1000
-        return usage.queryAndAggregateUsageStats(start, System.currentTimeMillis()).isNotEmpty()
-    }
+    fun hasUsageAccess(): Boolean = runCatching {
+        val ops = app.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+        ops.unsafeCheckOpNoThrow(
+            AppOpsManager.OPSTR_GET_USAGE_STATS,
+            Process.myUid(),
+            app.packageName
+        ) == AppOpsManager.MODE_ALLOWED
+    }.getOrDefault(false)
 
-    fun blocker(): EnforcementBlocker? = when {
-        !isDeviceOwner() -> EnforcementBlocker.NOT_DEVICE_OWNER
-        !hasUsageAccess() -> EnforcementBlocker.NO_USAGE_ACCESS
-        else -> null
-    }
+    fun status() = EnforcementStatus(
+        deviceOwner = isDeviceOwner(),
+        guardEnabled = FocusGuardService.isEnabled(app),
+        usageAccess = hasUsageAccess()
+    )
 
-    /** Foreground milliseconds used by [pkg] since local midnight. */
-    fun usedTodayMs(pkg: String): Long = usageTodayByPackage()[pkg] ?: 0L
+    // ---- Measurement -----------------------------------------------------
 
     /**
-     * One aggregate query for the whole day, so a screen listing many apps
-     * does not re-query per row.
+     * Foreground time today, per package, merging Focus's own ledger with the
+     * system's figures by taking whichever is larger. The ledger is accurate
+     * to the second while an app is open; the system figures survive periods
+     * when the guard service was off.
      */
     fun usageTodayByPackage(): Map<String, Long> {
-        val stats = usage.queryAndAggregateUsageStats(startOfDayMs(), System.currentTimeMillis())
-        return stats.mapValues { it.value.totalTimeInForeground }
-    }
+        val own = ledger.today()
+        val system = runCatching {
+            usage.queryAndAggregateUsageStats(startOfDayMs(), System.currentTimeMillis())
+                .mapValues { it.value.totalTimeInForeground }
+        }.getOrDefault(emptyMap())
 
-    /**
-     * Full evaluation: returns the set of packages that must be suspended
-     * right now, given rules, time used and the reading penalty.
-     */
-    fun packagesToSuspend(usageMs: Map<String, Long> = usageTodayByPackage()): Set<String> {
-        val today = dateKey(Date())
-        val penaltyActive = store.penaltyDate() == today
-
-        return store.rules()
-            .filter { shouldSuspend(it, penaltyActive, usageMs[it.packageName] ?: 0L) }
-            .map { it.packageName }
-            .toSet()
-    }
-
-    private fun shouldSuspend(rule: AppRule, penaltyActive: Boolean, usedMs: Long): Boolean =
-        when (rule.type) {
-            RestrictionType.NONE -> false
-            RestrictionType.FULL_BLOCK -> true
-            RestrictionType.TIME_LIMIT ->
-                // Under penalty, restricted apps get no allowance at all.
-                penaltyActive || usedMs >= rule.dailyLimitMinutes * 60_000L
+        if (system.isEmpty()) return own
+        return (own.keys + system.keys).associateWith {
+            maxOf(own[it] ?: 0L, system[it] ?: 0L)
         }
+    }
+
+    fun usedTodayMs(pkg: String): Long = usageTodayByPackage()[pkg] ?: 0L
+
+    // ---- Decision --------------------------------------------------------
+
+    fun snapshot(): PolicySnapshot = PolicySnapshot(
+        rules = store.rulesByPackage(),
+        usageMs = usageTodayByPackage(),
+        social = store.socialPackages(),
+        readingPenalty = store.penaltyDate() == dateKey(Date()),
+        taskPenalty = todos.socialLockedToday()
+    )
 
     /**
-     * Applies the current decision.
+     * A cheap snapshot for the guard service's hot path: it only ever asks
+     * about the package that just came forward, so the system-wide usage
+     * query is skipped in favour of the ledger alone.
+     */
+    fun fastSnapshot(): PolicySnapshot = PolicySnapshot(
+        rules = store.rulesByPackage(),
+        usageMs = ledger.today(),
+        social = store.socialPackages(),
+        readingPenalty = store.penaltyDate() == dateKey(Date()),
+        taskPenalty = todos.socialLockedToday()
+    )
+
+    /**
+     * Why [pkg] may not be used right now, or null when it may.
+     *
+     * Note what is absent: there is no branch that can restrict a package with
+     * no rule and no social flag. An app the user never opted in to is
+     * untouchable by every penalty here, which is what keeps the phone usable
+     * in an emergency.
+     */
+    fun reasonFor(pkg: String, snap: PolicySnapshot): BlockReason? {
+        if (snap.taskPenalty && pkg in snap.social) return BlockReason.TASK_PENALTY
+
+        val rule = snap.rules[pkg] ?: return null
+        return when (rule.type) {
+            RestrictionType.NONE -> null
+            RestrictionType.FULL_BLOCK -> BlockReason.FULL_BLOCK
+            RestrictionType.TIME_LIMIT -> when {
+                snap.readingPenalty -> BlockReason.READING_PENALTY
+                (snap.usageMs[pkg] ?: 0L) >= rule.dailyLimitMinutes * 60_000L ->
+                    BlockReason.LIMIT_REACHED
+                else -> null
+            }
+        }
+    }
+
+    /** What the home screen shows beside an app. */
+    fun stateOf(pkg: String, snap: PolicySnapshot): AppState {
+        reasonFor(pkg, snap)?.let { return AppState.Blocked(it) }
+        val rule = snap.rules[pkg] ?: return AppState.Unrestricted
+        if (rule.type != RestrictionType.TIME_LIMIT) return AppState.Unrestricted
+        val usedMin = ((snap.usageMs[pkg] ?: 0L) / 60_000L).toInt()
+        return AppState.Remaining((rule.dailyLimitMinutes - usedMin).coerceAtLeast(0))
+    }
+
+    /** Milliseconds of allowance left, or null when the app is not time-limited. */
+    fun remainingMs(pkg: String, snap: PolicySnapshot): Long? {
+        val rule = snap.rules[pkg] ?: return null
+        if (rule.type != RestrictionType.TIME_LIMIT) return null
+        return rule.dailyLimitMinutes * 60_000L - (snap.usageMs[pkg] ?: 0L)
+    }
+
+    /** Every package that must be unavailable right now. */
+    fun packagesToSuspend(snap: PolicySnapshot = snapshot()): Set<String> =
+        (snap.rules.keys + snap.social).filter { reasonFor(it, snap) != null }.toSet()
+
+    // ---- Application -----------------------------------------------------
+
+    /**
+     * Pushes the current decision into DevicePolicyManager.
+     *
+     * A no-op without Device Owner, which is not a failure: the accessibility
+     * guard is the layer that works on an unprovisioned phone, and treating
+     * its absence as an error here would spam the log on every resume.
      *
      * Release is driven by what was previously suspended rather than by the
      * current rule list, so deleting a rule outright still frees its package.
-     * Relying on the rule list would strand it suspended with nothing left to
-     * release it.
      */
     fun apply(): Result<Unit> = runCatching {
-        if (!isDeviceOwner()) error("Focus is not the device owner")
+        if (!isDeviceOwner()) return@runCatching
 
         val target = packagesToSuspend()
         val release = store.suspendedPackages() - target
@@ -110,12 +209,10 @@ class Enforcer(private val context: Context) {
         if (target.isNotEmpty()) {
             dpm.setPackagesSuspended(admin, target.toTypedArray(), true)
         }
-        if (release.isNotEmpty()) {
-            // A package uninstalled while suspended would throw here and abort
-            // the whole pass, so release one at a time.
-            release.forEach { pkg ->
-                runCatching { dpm.setPackagesSuspended(admin, arrayOf(pkg), false) }
-            }
+        // A package uninstalled while suspended would throw and abort the
+        // whole pass, so release one at a time.
+        release.forEach { pkg ->
+            runCatching { dpm.setPackagesSuspended(admin, arrayOf(pkg), false) }
         }
         store.saveSuspendedPackages(target)
     }
@@ -139,31 +236,18 @@ class Enforcer(private val context: Context) {
                 )
             UnlockKind.DOMAIN ->
                 store.saveBlockedDomains(store.blockedDomains() - pending.target)
+            UnlockKind.SOCIAL ->
+                store.saveSocialPackages(store.socialPackages() - pending.target)
         }
         store.setPendingUnlock(null)
         apply()
+        FocusGuardService.refreshScope()
         return true
-    }
-
-    /** What the home screen shows beside an app. */
-    fun stateOf(pkg: String, usageMs: Map<String, Long>): AppState {
-        val rule = store.ruleFor(pkg) ?: return AppState.Unrestricted
-        val penaltyActive = store.penaltyDate() == dateKey(Date())
-        return when (rule.type) {
-            RestrictionType.NONE -> AppState.Unrestricted
-            RestrictionType.FULL_BLOCK -> AppState.Blocked
-            RestrictionType.TIME_LIMIT -> {
-                if (penaltyActive) return AppState.Blocked
-                val usedMin = ((usageMs[pkg] ?: 0L) / 60_000L).toInt()
-                val left = (rule.dailyLimitMinutes - usedMin).coerceAtLeast(0)
-                if (left == 0) AppState.Blocked else AppState.Remaining(left)
-            }
-        }
     }
 
     /** Human-readable label for a package, falling back to the package name. */
     fun labelOf(pkg: String): String = runCatching {
-        val pm = context.packageManager
+        val pm = app.packageManager
         pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
     }.getOrDefault(pkg)
 
@@ -177,5 +261,24 @@ class Enforcer(private val context: Context) {
             set(Calendar.SECOND, 0)
             set(Calendar.MILLISECOND, 0)
         }.timeInMillis
+
+        /** Wording shown to the user when something is closed or listed. */
+        fun explain(reason: BlockReason): String = when (reason) {
+            BlockReason.FULL_BLOCK -> "blocked"
+            BlockReason.LIMIT_REACHED -> "limit reached"
+            BlockReason.READING_PENALTY -> "reading quiz"
+            BlockReason.TASK_PENALTY -> "tasks unfinished"
+        }
+
+        fun explainLong(reason: BlockReason): String = when (reason) {
+            BlockReason.FULL_BLOCK ->
+                "This app is blocked entirely."
+            BlockReason.LIMIT_REACHED ->
+                "You have used today's allowance for this app."
+            BlockReason.READING_PENALTY ->
+                "Yesterday's reading quiz was failed, so restricted apps get no allowance today."
+            BlockReason.TASK_PENALTY ->
+                "Yesterday's tasks were not all finished, so social apps are locked today."
+        }
     }
 }

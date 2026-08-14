@@ -16,17 +16,18 @@ things harder for their future self.
 **Target device:** Samsung Galaxy M14 5G (SM-M146B), Exynos 1330, 4GB RAM,
 Android 13/14 base, One UI. minSdk 33, targetSdk 35.
 
-**Approach:** no root, no bootloader unlock, no custom ROM. Enforcement uses
-Device Owner (`DevicePolicyManager`) provisioned over ADB, plus an
-`AccessibilityService` and a local `VpnService`. Do not propose solutions that
-require root.
+**Approach:** no root, no bootloader unlock, no custom ROM, and no factory
+reset required. Enforcement is primarily an `AccessibilityService`, with
+Device Owner (`DevicePolicyManager`) layered on top when it happens to be
+provisioned over ADB, plus a local `VpnService` for sites. Do not propose
+solutions that require root.
 
 ---
 
-## 2. Current state and known defects
+## 2. Defects fixed — do not reintroduce
 
-A skeleton exists. It compiles-ish but the following are broken or missing.
-Fix these first — they are why the app appeared empty on first install:
+These were the reasons the first build looked empty and blocked nothing. They
+are all resolved; the list stays as a record of what to watch for.
 
 1. **Settings is effectively invisible.** The link on the home screen is drawn
    at 14% opacity at the bottom of the screen against a near-black background.
@@ -44,6 +45,15 @@ Fix these first — they are why the app appeared empty on first install:
 5. **Gradle wrapper is missing.** Generate it and commit it.
 6. **Nothing has ever been compiled.** Expect import errors, Compose API
    signature mismatches, and unused-import warnings throughout. Fix them.
+7. **Nothing was actually blocked.** Enforcement went only through Device
+   Owner, which needs a factory reset to provision, so on a normal phone every
+   rule was decorative. See section 5.
+8. **The VPN was a black hole.** It routed `0.0.0.0/0` and wrote packets back
+   to the TUN, discarding all traffic rather than filtering DNS.
+9. **Loosening a restriction applied instantly**, bypassing the 24-hour gate
+   that is the entire point of the tool. See section 6.
+10. **The launcher stuttered.** Every home press called `recreate()` and
+    reloaded every installed app's label on the main thread. See section 4.
 
 ---
 
@@ -68,16 +78,26 @@ Keep this restraint. Do not add accent colours, gradients, or app icons.
 ## 4. Home screen
 
 - Clock at top: hour at full opacity, colon at 14%, minutes at 45%. Light
-  weight, large.
+  weight, large. Ticks on the minute boundary.
 - Date beneath in lowercase, small, muted.
 - A single search field. Typing filters installed apps by label; show at most
-  7 results. Empty query shows no list at all — this is deliberate, there is no
-  browsable grid.
+  7 results. Empty query shows no app list at all — this is deliberate, there
+  is no browsable grid.
 - Each result row: app label on the left; on the right, `12m` if the app has
-  remaining allowance today, or `blocked` if it is currently suspended.
+  remaining allowance today, or the reason it is unavailable.
 - Tapping a result launches the app and clears the query.
+- **With an empty query the space is the day, not a void:** today's agenda
+  (section 10) and a month calendar, and beneath everything the user's own
+  line (section 11).
 - A clearly visible route into settings.
 - Re-apply policy whenever the launcher returns to the foreground.
+
+**Performance is a requirement, not a nicety.** This runs on a 4GB phone and
+is the first thing touched after every unlock. Concretely: never resolve
+launcher activities or call `loadLabel` on the main thread — `AppCatalog`
+caches that for the process; never call `queryAndAggregateUsageStats` during
+composition; never re-parse stored JSON per list row — read a `PolicySnapshot`
+once and index it; and never call `recreate()` on a home press.
 
 ---
 
@@ -96,14 +116,33 @@ did before. Restriction is strictly opt-in per package.
 **Measurement:** `UsageStatsManager.queryAndAggregateUsageStats` from local
 midnight. Requires the PACKAGE_USAGE_STATS special access permission.
 
-**Enforcement:** `DevicePolicyManager.setPackagesSuspended`. Suspended apps
-refuse to open and Android shows a system dialog. Do not use
-`setApplicationHidden` — a vanished app is more confusing than a blocked one.
+**Enforcement — two independent layers.** Either one alone is sufficient; the
+app is honest on the home screen when neither is available.
 
-**Timing:** a periodic `WorkManager` job re-evaluates every 15 minutes so a
-limit takes effect while the app is open, not only on return to the launcher.
-Also re-apply on boot via a `BOOT_COMPLETED` receiver, because suspension does
-not survive a restart.
+1. **Accessibility guard (`FocusGuardService`) — the primary layer.** Needs
+   only the accessibility toggle, so it works on an ordinary phone. It sees a
+   restricted package come to the foreground and immediately performs
+   `GLOBAL_ACTION_HOME`, then records a note the launcher displays explaining
+   what was closed and why. This is how every app blocker on the Play Store
+   works, and it is what makes the app do anything at all on a device that was
+   never factory reset. Do not remove it in favour of Device Owner alone.
+2. **Device Owner suspension — optional and stronger.**
+   `DevicePolicyManager.setPackagesSuspended`, applied on top when it happens
+   to be provisioned. Suspended apps never launch at all, so there is no
+   window where the app flashes up. Do not use `setApplicationHidden` — a
+   vanished app is more confusing than a blocked one.
+
+**Measurement, second by second.** The guard keeps its own ledger
+(`UsageLedger`) of foreground time, marked on window changes and on a tick
+scheduled to fire exactly when the allowance runs out. `UsageStatsManager` is
+merged in by taking the larger value per package, so the system's figures
+cover stretches when the guard was off and the ledger covers the OEM builds
+that only flush `totalTimeInForeground` once an app leaves the foreground.
+Usage access is therefore recommended rather than required.
+
+**Timing:** the guard reacts within a second. The periodic `WorkManager` job
+every 15 minutes is the backstop, not the mechanism. Also re-apply on boot via
+a `BOOT_COMPLETED` receiver, because suspension does not survive a restart.
 
 **Release:** at local midnight, suspension lifts automatically for time-limited
 apps. Fully blocked apps stay blocked.
@@ -239,7 +278,47 @@ safety requirement, not a preference.
 
 ---
 
-## 10. Honest constraints to surface in the UI
+## 10. Daily agenda
+
+A todo list that is part of the enforcement, not an accessory.
+
+- Two kinds of item: a **daily** task that reappears every morning, and a
+  **today only** one-off. Both store their creation date, so a task added
+  today can never count retroactively against a day that has already ended.
+- Today's list sits on the home screen under the search field, with the tasks
+  tappable to complete. A month calendar underneath marks each day: a filled
+  dot when that day's list was finished, hollow when it was not, nothing when
+  there was no list. Tapping a day shows it; past days are read only, because
+  retroactively ticking yesterday would erase the consequence.
+
+**Failure consequence.** If any of a day's tasks are left unfinished, the apps
+flagged as social are blocked for the whole of the next day. This is derived
+from stored state rather than written at midnight, so it cannot get stuck on
+from a missed job, and it lifts by itself.
+
+**Scope, and this is the safety requirement again.** Only packages the user
+has explicitly flagged as social are ever affected. The flag is opt-in per
+package; the seeded defaults are feed-shaped apps only and deliberately
+exclude messengers. Phone, messages, maps, banking and transport can never be
+reached by this penalty.
+
+**Removing the social flag is a relaxation** and goes through the same 24-hour
+delayed path as section 6. An instant unflag would be a trivial way out of the
+lockout, which would make the whole mechanic decorative.
+
+---
+
+## 11. The user’s line
+
+A quote the user writes for themselves, shown large at the bottom of the home
+screen. This is the one place the two-colour rule is relaxed, deliberately,
+because the line belongs to the user rather than to the app: colour (a muted
+palette plus a hex field), size, and typeface are all theirs to set. Leaving
+the text empty hides it entirely.
+
+---
+
+## 12. Honest constraints to surface in the UI
 
 Do not oversell the enforcement. The app should be upfront that:
 
@@ -254,7 +333,7 @@ Do not oversell the enforcement. The app should be upfront that:
 
 ---
 
-## 11. Build and verification
+## 13. Build and verification
 
 - Generate and commit the Gradle wrapper.
 - `./gradlew assembleDebug` must succeed cleanly.

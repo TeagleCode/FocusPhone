@@ -203,8 +203,8 @@ private fun SettingsScreen() {
             PendingUnlockCard(
                 pending = p,
                 label = when (p.kind) {
-                    UnlockKind.APP -> enforcer.labelOf(p.target)
                     UnlockKind.DOMAIN -> p.target
+                    else -> enforcer.labelOf(p.target)
                 },
                 onConfirm = {
                     if (enforcer.confirmUnlock()) {
@@ -236,8 +236,14 @@ private fun SettingsScreen() {
         NavLink("sites and in-app sections") {
             context.startActivity(Intent(context, BlocklistActivity::class.java))
         }
+        NavLink("daily agenda") {
+            context.startActivity(Intent(context, TodoActivity::class.java))
+        }
         NavLink("daily reading") {
             context.startActivity(Intent(context, ReadingActivity::class.java))
+        }
+        NavLink("your line") {
+            context.startActivity(Intent(context, AppearanceActivity::class.java))
         }
         NavLink("setup and permissions") {
             context.startActivity(Intent(context, SetupActivity::class.java))
@@ -302,6 +308,7 @@ private fun PendingUnlockCard(
                     RestrictionType.FULL_BLOCK -> "would stay blocked"
                 }
                 UnlockKind.DOMAIN -> "would be removed from the blocklist"
+                UnlockKind.SOCIAL -> "would stop counting as social media"
             },
             color = Focus.Tertiary,
             fontSize = Focus.MetaSize

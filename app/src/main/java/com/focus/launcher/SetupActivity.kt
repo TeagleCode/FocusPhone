@@ -27,8 +27,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.focus.launcher.data.PolicyStore
+import com.focus.launcher.data.TodoStore
 import com.focus.launcher.policy.Enforcer
-import com.focus.launcher.policy.SectionBlockerService
+import com.focus.launcher.policy.FocusGuardService
 import com.focus.launcher.policy.SiteBlockerVpnService
 import com.focus.launcher.ui.Focus
 
@@ -134,21 +135,45 @@ private fun buildSteps(
     val isHome = isDefaultLauncher(context)
     val isOwner = enforcer.isDeviceOwner()
     val hasUsage = enforcer.hasUsageAccess()
-    val a11yOn = SectionBlockerService.isEnabled(context)
+    val guardOn = FocusGuardService.isEnabled(context)
     val vpnReady = VpnService.prepare(context) == null
     val key = store.apiKeyFingerprint()
 
     return listOf(
         Step(
             title = "set as home screen",
-            detail = "Press home and choose Focus, then Always.",
+            detail = "Press home and choose Focus, then Always. This also matters for " +
+                "blocking: closing a restricted app means sending you home, and home " +
+                "is where the explanation appears.",
             status = if (isHome) "active" else "not the home screen",
             done = isHome,
             action = { context.startActivity(homeSettingsIntent(context)) }
         ),
         Step(
+            title = "accessibility service",
+            detail = "This is what actually blocks. It notices a restricted app coming " +
+                "to the front and closes it immediately, counts the minutes you spend " +
+                "in time-limited apps, and shuts short-form feeds like Reels and Shorts.\n\n" +
+                "It watches only the apps you have restricted or flagged, and nothing " +
+                "else — the system enforces that list, not the app.\n\n" +
+                "If the toggle is greyed out, Android has restricted it because Focus " +
+                "was installed from a file. Open app info for Focus, tap the three-dot " +
+                "menu, and choose Allow restricted settings.",
+            status = if (guardOn) "enabled" else "off — nothing is being blocked",
+            done = guardOn,
+            action = {
+                context.startActivity(
+                    Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }
+        ),
+        Step(
             title = "usage access",
-            detail = "Without this, time limits cannot be measured and silently do nothing.",
+            detail = "Focus keeps its own record of time spent, so limits work without " +
+                "this. Granting it makes them more accurate: it lets Focus see when you " +
+                "switch to an app it does not watch, and recover time counted while the " +
+                "accessibility service was off.",
             status = if (hasUsage) "granted" else "not granted",
             done = hasUsage,
             action = {
@@ -160,28 +185,18 @@ private fun buildSteps(
         ),
         Step(
             title = "device owner",
-            detail = "Cannot be granted from inside the app. On a device with no " +
-                "accounts configured, with USB debugging on, run:\n\n" +
+            detail = "Optional, and much stronger: the system itself refuses to open a " +
+                "suspended app, with no window where it flashes up first.\n\n" +
+                "It cannot be granted from inside the app. On a device with no accounts " +
+                "configured, with USB debugging on, run:\n\n" +
                 "adb shell dpm set-device-owner " +
                 "com.focus.launcher/.policy.FocusDeviceAdminReceiver\n\n" +
-                "If it fails saying accounts already exist, remove every account " +
-                "and retry. Accounts can be added again afterwards.",
-            status = if (isOwner) "active" else "not provisioned — nothing can be blocked",
-            done = isOwner
-        ),
-        Step(
-            title = "accessibility service",
-            detail = "Only needed to close in-app sections such as Reels or Shorts. " +
-                "It watches only the apps you list, and nothing else.",
-            status = if (a11yOn) "enabled" else "off",
-            done = a11yOn,
-            optional = true,
-            action = {
-                context.startActivity(
-                    Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
-            }
+                "If it fails saying accounts already exist, every account must be " +
+                "removed first — in practice that means a factory reset. Accounts can " +
+                "be added again afterwards.",
+            status = if (isOwner) "active" else "not provisioned",
+            done = isOwner,
+            optional = true
         ),
         Step(
             title = "vpn consent",
@@ -220,6 +235,17 @@ private fun buildSteps(
                 context.startActivity(Intent(context, AppPickerActivity::class.java))
             },
             actionLabel = "choose"
+        ),
+        Step(
+            title = "daily agenda",
+            detail = "Tasks appear on the home screen. Leave any of a day's tasks " +
+                "unfinished and the apps flagged as social are locked for the whole " +
+                "of the next day.",
+            status = "${TodoStore(context).agenda(TodoStore.todayKey()).size} today",
+            done = TodoStore(context).agenda(TodoStore.todayKey()).isNotEmpty(),
+            optional = true,
+            action = { context.startActivity(Intent(context, TodoActivity::class.java)) },
+            actionLabel = "edit"
         )
     )
 }
@@ -284,10 +310,13 @@ private fun HonestConstraints() {
     Text("what this does not do", color = Focus.Tertiary, fontSize = 12.sp, letterSpacing = 1.2.sp)
     Spacer(Modifier.height(10.dp))
     listOf(
-        "Device owner can be removed by a factory reset from recovery. " +
-            "This is friction, not a prison.",
-        "Restrictions are re-checked every 15 minutes, so a time limit can " +
-            "overrun by up to that long.",
+        "Accessibility blocking is friction, not a prison: turning the service off " +
+            "in system settings disables it in two taps. That is deliberate — a tool " +
+            "you cannot escape is a tool you cannot trust.",
+        "A restricted app is closed a fraction of a second after it opens, so you " +
+            "will see it flash up. Only device owner can stop it launching at all.",
+        "Time is counted while the guard is running. Turn it off, and the minutes " +
+            "spent meanwhile are only recovered if usage access is granted.",
         "Section blocking relies on hints that break when an app redesigns its feed.",
         "Some banking apps refuse to run on a device with a device owner. If that " +
             "happens, drop device owner and rely on accessibility blocking, which is softer."

@@ -18,6 +18,9 @@ class PolicyWorker(context: Context, params: WorkerParameters) : Worker(context,
 
     override fun doWork(): Result {
         Enforcer(applicationContext).apply()
+        // Rules can change while the guard is connected; this is the periodic
+        // safety net for a scope that somehow drifted out of date.
+        FocusGuardService.refreshScope()
         return Result.success()
     }
 

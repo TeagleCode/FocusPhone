@@ -1,6 +1,6 @@
 package com.focus.launcher
 
-import android.content.Intent
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -23,17 +23,22 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.focus.launcher.data.AppCatalog
 import com.focus.launcher.data.AppRule
+import com.focus.launcher.data.LaunchableApp
 import com.focus.launcher.data.PendingUnlock
 import com.focus.launcher.data.PolicyStore
 import com.focus.launcher.data.RestrictionType
 import com.focus.launcher.data.UnlockKind
 import com.focus.launcher.policy.Enforcer
+import com.focus.launcher.policy.FocusGuardService
 import com.focus.launcher.ui.Focus
+import kotlinx.coroutines.launch
 
 /**
- * Choose which installed apps carry a rule. Reached only from settings, which
- * is itself behind the challenge gate, so no additional gate is needed here.
+ * Choose which installed apps carry a rule, and which count as social media.
+ * Reached only from settings, which is itself behind the challenge gate, so no
+ * additional gate is needed here.
  *
  * Adding or tightening a restriction applies immediately. Loosening one never
  * does: it becomes a request that matures after 24 hours and then still needs
@@ -46,40 +51,48 @@ class AppPickerActivity : ComponentActivity() {
     }
 }
 
-private data class InstalledApp(val label: String, val pkg: String)
-
 @Composable
 private fun AppPickerScreen() {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val store = remember { PolicyStore(context) }
+
     var query by remember { mutableStateOf("") }
-    var rules by remember { mutableStateOf(store.rules()) }
-    var editing by remember { mutableStateOf<InstalledApp?>(null) }
+    var rules by remember { mutableStateOf(store.rulesByPackage()) }
+    var social by remember { mutableStateOf(store.socialPackages()) }
+    var editing by remember { mutableStateOf<LaunchableApp?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
 
-    val installed = remember {
-        val main = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        context.packageManager.queryIntentActivities(main, 0)
-            .map { InstalledApp(it.loadLabel(context.packageManager).toString(), it.activityInfo.packageName) }
-            .filter { it.pkg != context.packageName }
-            .distinctBy { it.pkg }
-            .sortedBy { it.label.lowercase() }
+    // Loaded off the main thread; the cache means this is usually instant.
+    var installed by remember { mutableStateOf(AppCatalog.snapshot().orEmpty()) }
+    LaunchedEffect(Unit) {
+        installed = AppCatalog.load(context)
     }
 
     val shown = remember(query, installed) {
         if (query.isBlank()) installed
-        else installed.filter { it.label.contains(query, ignoreCase = true) }
+        else {
+            val needle = query.lowercase()
+            installed.filter { it.lowerLabel.contains(needle) }
+        }
     }
 
     editing?.let { app ->
         RuleEditor(
             app = app,
-            existing = rules.firstOrNull { it.packageName == app.pkg },
+            existing = rules[app.packageName],
+            isSocial = app.packageName in social,
+            onSocialToggle = {
+                notice = toggleSocial(store, context, app.packageName)
+                social = store.socialPackages()
+                FocusGuardService.refreshScope()
+            },
             onDismiss = { editing = null },
             onSave = { rule ->
                 notice = applyRuleChange(store, context, rule)
-                rules = store.rules()
+                rules = store.rulesByPackage()
                 editing = null
+                scope.launch { Enforcer(context).apply() }
             }
         )
         return
@@ -128,7 +141,9 @@ private fun AppPickerScreen() {
                         .background(Focus.Surface)
                         .padding(horizontal = 18.dp, vertical = 15.dp)
                 ) {
-                    if (query.isEmpty()) Text("filter", color = Focus.Tertiary, fontSize = Focus.SearchSize)
+                    if (query.isEmpty()) {
+                        Text("filter", color = Focus.Tertiary, fontSize = Focus.SearchSize)
+                    }
                     inner()
                 }
             },
@@ -138,27 +153,29 @@ private fun AppPickerScreen() {
         Spacer(Modifier.height(16.dp))
 
         LazyColumn {
-            items(shown) { app ->
-                val rule = rules.firstOrNull { it.packageName == app.pkg }
+            items(shown, key = { it.packageName }) { app ->
+                val rule = rules[app.packageName]
+                val restricted = rule != null && rule.type != RestrictionType.NONE
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 3.dp)
                         .clip(RoundedCornerShape(Focus.RadiusRow))
-                        .background(
-                            if (rule != null && rule.type != RestrictionType.NONE) Focus.Surface
-                            else Color.Transparent
-                        )
+                        .background(if (restricted) Focus.Surface else Color.Transparent)
                         .clickable { notice = null; editing = app }
                         .padding(horizontal = 16.dp, vertical = 14.dp)
                 ) {
                     Text(
-                        app.label.lowercase(),
+                        app.lowerLabel,
                         color = Focus.Primary,
                         fontSize = Focus.AppSize,
                         modifier = Modifier.weight(1f)
                     )
+                    if (app.packageName in social) {
+                        Text("social", color = Focus.Ghost, fontSize = 11.sp, letterSpacing = 1.sp)
+                        Spacer(Modifier.width(10.dp))
+                    }
                     Text(
                         when (rule?.type) {
                             RestrictionType.FULL_BLOCK -> "blocked"
@@ -183,7 +200,7 @@ private fun AppPickerScreen() {
  */
 private fun applyRuleChange(
     store: PolicyStore,
-    context: android.content.Context,
+    context: Context,
     next: AppRule
 ): String {
     val current = store.ruleFor(next.packageName)
@@ -193,20 +210,11 @@ private fun applyRuleChange(
     if (next.isTighterThan(current)) {
         store.upsertRule(next)
         Enforcer(context).apply()
+        FocusGuardService.refreshScope()
         return "Applied."
     }
 
-    // Only one relaxation may be outstanding at a time; a second must be
-    // refused out loud rather than silently ignored.
-    store.pendingUnlock()?.let { existing ->
-        val what = if (existing.kind == UnlockKind.APP) {
-            Enforcer(context).labelOf(existing.target)
-        } else {
-            existing.target
-        }
-        return "A request for \"$what\" is already pending. Only one at a time — " +
-            "cancel it in settings first."
-    }
+    alreadyPending(store, context)?.let { return it }
 
     store.setPendingUnlock(
         PendingUnlock(
@@ -221,10 +229,47 @@ private fun applyRuleChange(
         "confirm it in settings. Nothing has changed yet."
 }
 
+/**
+ * Flagging an app as social takes effect at once. Unflagging does not — it is
+ * a relaxation, and an instant one would be a trivial way out of the very
+ * lockout the daily list is supposed to impose.
+ */
+private fun toggleSocial(store: PolicyStore, context: Context, pkg: String): String {
+    if (pkg !in store.socialPackages()) {
+        store.saveSocialPackages(store.socialPackages() + pkg)
+        return "Flagged as social."
+    }
+
+    alreadyPending(store, context)?.let { return it }
+
+    store.setPendingUnlock(
+        PendingUnlock(
+            kind = UnlockKind.SOCIAL,
+            target = pkg,
+            requestedAtMs = System.currentTimeMillis()
+        )
+    )
+    return "Requested. Removing the social flag takes 24 hours and then needs " +
+        "confirming. It is still flagged for now."
+}
+
+/** Only one relaxation may be outstanding at a time; a second is refused out loud. */
+private fun alreadyPending(store: PolicyStore, context: Context): String? {
+    val existing = store.pendingUnlock() ?: return null
+    val what = when (existing.kind) {
+        UnlockKind.DOMAIN -> existing.target
+        else -> Enforcer(context).labelOf(existing.target)
+    }
+    return "A request for \"$what\" is already pending. Only one at a time — " +
+        "cancel it in settings first."
+}
+
 @Composable
 private fun RuleEditor(
-    app: InstalledApp,
+    app: LaunchableApp,
     existing: AppRule?,
+    isSocial: Boolean,
+    onSocialToggle: () -> Unit,
     onDismiss: () -> Unit,
     onSave: (AppRule) -> Unit
 ) {
@@ -240,7 +285,7 @@ private fun RuleEditor(
         Spacer(Modifier.height(72.dp))
         Text(app.label, color = Focus.Primary, fontSize = 24.sp, fontWeight = FontWeight.Light)
         Spacer(Modifier.height(4.dp))
-        Text(app.pkg, color = Focus.Ghost, fontSize = 12.sp)
+        Text(app.packageName, color = Focus.Ghost, fontSize = 12.sp)
 
         Spacer(Modifier.height(32.dp))
 
@@ -290,8 +335,41 @@ private fun RuleEditor(
             )
         }
 
+        Spacer(Modifier.height(24.dp))
+
+        // Independent of the rule: this decides what the unfinished-tasks
+        // penalty is allowed to reach, and nothing else.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(Focus.RadiusRow))
+                .background(if (isSocial) Focus.SurfacePressed else Focus.Surface)
+                .clickable(onClick = onSocialToggle)
+                .padding(horizontal = 18.dp, vertical = 16.dp)
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "counts as social media",
+                    color = if (isSocial) Focus.Primary else Focus.Secondary,
+                    fontSize = 16.sp
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "locked for a day when the agenda is left unfinished",
+                    color = Focus.Ghost,
+                    fontSize = 12.sp
+                )
+            }
+            Text(
+                if (isSocial) "yes" else "no",
+                color = if (isSocial) Focus.Primary else Focus.Ghost,
+                fontSize = 13.sp
+            )
+        }
+
         val proposed = AppRule(
-            packageName = app.pkg,
+            packageName = app.packageName,
             type = type,
             dailyLimitMinutes = minutes.toIntOrNull() ?: 30
         )

@@ -9,7 +9,7 @@ import org.json.JSONObject
 enum class RestrictionType { NONE, TIME_LIMIT, FULL_BLOCK }
 
 /** What a pending unlock is trying to relax. */
-enum class UnlockKind { APP, DOMAIN }
+enum class UnlockKind { APP, DOMAIN, SOCIAL }
 
 /** A section inside an app that should be blocked (e.g. Instagram Reels). */
 data class BlockedSection(
@@ -69,17 +69,44 @@ data class PendingUnlock(
     }
 }
 
+/** Why something was just closed. Shown on the launcher after an interception. */
+enum class BlockReason { FULL_BLOCK, LIMIT_REACHED, READING_PENALTY, TASK_PENALTY }
+
+data class BlockNotice(val packageName: String, val reason: BlockReason, val atMs: Long)
+
+/**
+ * Parsed state is cached process-wide because every screen and the guard
+ * service read the same rules many times per second. SharedPreferences is
+ * already an in-memory map; what cost real time was re-parsing the JSON on
+ * every single lookup, which is what made the launcher stutter.
+ */
+private object ParseCache {
+    @Volatile var rules: List<AppRule>? = null
+    @Volatile var sections: List<BlockedSection>? = null
+
+    fun invalidate() {
+        rules = null
+        sections = null
+    }
+}
+
 class PolicyStore(context: Context) {
 
     private val prefs: SharedPreferences =
-        context.getSharedPreferences("focus_policy", Context.MODE_PRIVATE)
+        context.applicationContext.getSharedPreferences("focus_policy", Context.MODE_PRIVATE)
+
+    private fun commit(edit: SharedPreferences.Editor) {
+        edit.apply()
+        ParseCache.invalidate()
+    }
 
     // ---- App rules -------------------------------------------------------
 
     fun rules(): List<AppRule> {
+        ParseCache.rules?.let { return it }
         val raw = prefs.getString(KEY_RULES, "[]") ?: "[]"
         val arr = JSONArray(raw)
-        return (0 until arr.length()).map { i ->
+        val parsed = (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
             AppRule(
                 packageName = o.getString("pkg"),
@@ -87,7 +114,12 @@ class PolicyStore(context: Context) {
                 dailyLimitMinutes = o.optInt("limit", 0)
             )
         }
+        ParseCache.rules = parsed
+        return parsed
     }
+
+    /** Indexed once for callers that look up many packages in a row. */
+    fun rulesByPackage(): Map<String, AppRule> = rules().associateBy { it.packageName }
 
     fun ruleFor(pkg: String): AppRule? = rules().firstOrNull { it.packageName == pkg }
 
@@ -100,7 +132,7 @@ class PolicyStore(context: Context) {
                 put("limit", r.dailyLimitMinutes)
             })
         }
-        prefs.edit().putString(KEY_RULES, arr.toString()).apply()
+        commit(prefs.edit().putString(KEY_RULES, arr.toString()))
     }
 
     fun upsertRule(rule: AppRule) {
@@ -108,16 +140,53 @@ class PolicyStore(context: Context) {
         saveRules(next)
     }
 
-    /** Packages the accessibility service is allowed to observe. */
+    /**
+     * Everything the guard service is allowed to observe: apps under a rule,
+     * apps flagged as social, and apps with a blocked section. Nothing else is
+     * ever in scope, so events from banking or messaging apps do not reach
+     * this process at all.
+     */
     fun watchedPackages(): Set<String> =
-        blockedSections().map { it.packageName }.toSet()
+        rules().filter { it.type != RestrictionType.NONE }.map { it.packageName }.toSet() +
+            socialPackages() +
+            blockedSections().map { it.packageName }.toSet()
+
+    // ---- Social apps -----------------------------------------------------
+
+    /**
+     * Apps that count as social media for the unfinished-tasks penalty. Opt-in
+     * per package, so the penalty can never reach the phone or messages.
+     */
+    fun socialPackages(): Set<String> = prefs.getStringSet(KEY_SOCIAL, null) ?: emptySet()
+
+    fun saveSocialPackages(pkgs: Set<String>) {
+        commit(prefs.edit().putStringSet(KEY_SOCIAL, LinkedHashSet(pkgs)))
+    }
+
+    fun isSocial(pkg: String) = pkg in socialPackages()
+
+    fun toggleSocial(pkg: String) {
+        val current = socialPackages()
+        saveSocialPackages(if (pkg in current) current - pkg else current + pkg)
+    }
+
+    /** Flags the obvious candidates once, so the feature is not empty on day one. */
+    fun seedSocialIfUnset(installed: Set<String>) {
+        if (prefs.contains(KEY_SOCIAL)) return
+        saveSocialPackages(DEFAULT_SOCIAL.filter { it in installed }.toSet())
+    }
 
     // ---- In-app sections -------------------------------------------------
 
     fun blockedSections(): List<BlockedSection> {
-        val raw = prefs.getString(KEY_SECTIONS, null) ?: return emptyList()
+        ParseCache.sections?.let { return it }
+        val raw = prefs.getString(KEY_SECTIONS, null)
+        if (raw == null) {
+            ParseCache.sections = emptyList()
+            return emptyList()
+        }
         val arr = JSONArray(raw)
-        return (0 until arr.length()).map { i ->
+        val parsed = (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
             BlockedSection(
                 packageName = o.getString("pkg"),
@@ -126,6 +195,8 @@ class PolicyStore(context: Context) {
                 textHints = o.getJSONArray("texts").toStringList()
             )
         }
+        ParseCache.sections = parsed
+        return parsed
     }
 
     fun saveSections(sections: List<BlockedSection>) {
@@ -138,7 +209,7 @@ class PolicyStore(context: Context) {
                 put("texts", JSONArray(s.textHints))
             })
         }
-        prefs.edit().putString(KEY_SECTIONS, arr.toString()).apply()
+        commit(prefs.edit().putString(KEY_SECTIONS, arr.toString()))
     }
 
     fun upsertSection(section: BlockedSection) {
@@ -154,7 +225,7 @@ class PolicyStore(context: Context) {
     fun saveBlockedDomains(domains: Set<String>) {
         // A defensive copy: SharedPreferences must not be handed a set that
         // the caller may later mutate.
-        prefs.edit().putStringSet(KEY_DOMAINS, LinkedHashSet(domains)).apply()
+        commit(prefs.edit().putStringSet(KEY_DOMAINS, LinkedHashSet(domains)))
     }
 
     fun addBlockedDomain(domain: String) {
@@ -186,7 +257,7 @@ class PolicyStore(context: Context) {
 
     fun setPendingUnlock(p: PendingUnlock?) {
         if (p == null) {
-            prefs.edit().remove(KEY_PENDING).apply()
+            commit(prefs.edit().remove(KEY_PENDING))
             return
         }
         val o = JSONObject().apply {
@@ -196,7 +267,7 @@ class PolicyStore(context: Context) {
             put("newType", p.newType.name)
             put("newLimit", p.newLimitMinutes)
         }
-        prefs.edit().putString(KEY_PENDING, o.toString()).apply()
+        commit(prefs.edit().putString(KEY_PENDING, o.toString()))
     }
 
     // ---- Suspension bookkeeping -----------------------------------------
@@ -211,6 +282,32 @@ class PolicyStore(context: Context) {
 
     fun saveSuspendedPackages(pkgs: Set<String>) {
         prefs.edit().putStringSet(KEY_SUSPENDED, LinkedHashSet(pkgs)).apply()
+    }
+
+    // ---- Interception notice ---------------------------------------------
+
+    /**
+     * The guard service cannot start an activity from the background on
+     * modern Android, so instead it sends the user home and leaves a note
+     * here. The launcher reads it and explains what just happened.
+     */
+    fun recordBlock(pkg: String, reason: BlockReason) {
+        prefs.edit()
+            .putString(KEY_LAST_BLOCK, "$pkg|${reason.name}|${System.currentTimeMillis()}")
+            .apply()
+    }
+
+    fun lastBlock(): BlockNotice? {
+        val raw = prefs.getString(KEY_LAST_BLOCK, null) ?: return null
+        val parts = raw.split('|')
+        if (parts.size != 3) return null
+        val reason = runCatching { BlockReason.valueOf(parts[1]) }.getOrNull() ?: return null
+        val at = parts[2].toLongOrNull() ?: return null
+        return BlockNotice(parts[0], reason, at)
+    }
+
+    fun clearBlockNotice() {
+        prefs.edit().remove(KEY_LAST_BLOCK).apply()
     }
 
     // ---- Reading penalty state ------------------------------------------
@@ -255,17 +352,42 @@ class PolicyStore(context: Context) {
         private const val KEY_RULES = "rules"
         private const val KEY_SECTIONS = "sections"
         private const val KEY_DOMAINS = "domains"
+        private const val KEY_SOCIAL = "social_packages"
         private const val KEY_PENDING = "pending_unlock"
         private const val KEY_QUIZ_DATE = "quiz_date"
         private const val KEY_PENALTY_DATE = "penalty_date"
         private const val KEY_SUSPENDED = "suspended"
         private const val KEY_SETUP_DONE = "setup_done"
+        private const val KEY_LAST_BLOCK = "last_block"
 
         /** A starting point, not a complete list. The user extends it. */
         val STARTER_DOMAINS = setOf(
             "pornhub.com", "xvideos.com", "xhamster.com", "xnxx.com",
             "redtube.com", "youporn.com", "spankbang.com", "onlyfans.com",
             "chaturbate.com", "stripchat.com", "rule34.xxx"
+        )
+
+        /**
+         * Seeded on first run, filtered to what is actually installed.
+         *
+         * Deliberately only feed-shaped apps. Messengers are left out even
+         * when they have a social side, because the penalty this list feeds
+         * must never be able to cut off a way of contacting someone. The user
+         * can still flag one by hand if they want to.
+         */
+        val DEFAULT_SOCIAL = setOf(
+            "com.instagram.android",
+            "com.zhiliaoapp.musically",
+            "com.ss.android.ugc.trill",
+            "com.google.android.youtube",
+            "com.snapchat.android",
+            "com.twitter.android",
+            "com.facebook.katana",
+            "com.facebook.lite",
+            "com.reddit.frontpage",
+            "com.pinterest",
+            "com.linkedin.android",
+            "tv.twitch.android.app"
         )
     }
 }
