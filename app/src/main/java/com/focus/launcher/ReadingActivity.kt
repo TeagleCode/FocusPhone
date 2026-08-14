@@ -87,6 +87,7 @@ private fun ReadingScreen() {
         Modifier
             .fillMaxSize()
             .background(Focus.Ink)
+            .navigationBarsPadding()
             .padding(horizontal = Focus.Gutter)
     ) {
         Spacer(Modifier.height(72.dp))

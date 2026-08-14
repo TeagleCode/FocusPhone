@@ -76,6 +76,7 @@ private fun SetupScreen() {
         Modifier
             .fillMaxSize()
             .background(Focus.Ink)
+            .navigationBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = Focus.Gutter)
     ) {

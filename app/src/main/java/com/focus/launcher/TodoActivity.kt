@@ -67,6 +67,7 @@ private fun TodoScreen() {
         Modifier
             .fillMaxSize()
             .background(Focus.Ink)
+            .navigationBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = Focus.Gutter)
     ) {

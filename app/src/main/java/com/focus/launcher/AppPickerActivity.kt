@@ -102,6 +102,7 @@ private fun AppPickerScreen() {
         Modifier
             .fillMaxSize()
             .background(Focus.Ink)
+            .navigationBarsPadding()
             .padding(horizontal = Focus.Gutter)
     ) {
         Spacer(Modifier.height(72.dp))
@@ -280,6 +281,7 @@ private fun RuleEditor(
         Modifier
             .fillMaxSize()
             .background(Focus.Ink)
+            .navigationBarsPadding()
             .padding(horizontal = Focus.Gutter)
     ) {
         Spacer(Modifier.height(72.dp))

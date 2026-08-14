@@ -75,6 +75,7 @@ private fun BlocklistScreen() {
         Modifier
             .fillMaxSize()
             .background(Focus.Ink)
+            .navigationBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = Focus.Gutter)
     ) {
@@ -367,6 +368,7 @@ private fun HintEditor(
         Modifier
             .fillMaxSize()
             .background(Focus.Ink)
+            .navigationBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = Focus.Gutter)
     ) {

@@ -18,7 +18,20 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // Compose in a debug build is several times slower than the same
+            // code optimised: no R8, no AOT-compiled baseline profile. On a
+            // 4GB phone that is the difference between a launcher that feels
+            // instant and one that visibly stutters, so the build you install
+            // should be this one.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            // Signed with the debug key by choice: it keeps a single install
+            // identity, at the cost of the usual Play Protect warning.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 

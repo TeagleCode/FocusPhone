@@ -158,6 +158,7 @@ private fun HomeScreen(resetSignal: Int) {
         modifier = Modifier
             .fillMaxSize()
             .background(Focus.Ink)
+            .navigationBarsPadding()
             // A long press on empty space is the second route into settings,
             // so it stays reachable even with the field focused.
             .combinedClickable(

@@ -69,6 +69,7 @@ private fun GateScreen(onPass: () -> Unit) {
         modifier = Modifier
             .fillMaxSize()
             .background(Focus.Ink)
+            .navigationBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = Focus.Gutter)
     ) {
@@ -185,6 +186,7 @@ private fun SettingsScreen() {
         modifier = Modifier
             .fillMaxSize()
             .background(Focus.Ink)
+            .navigationBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = Focus.Gutter)
     ) {
