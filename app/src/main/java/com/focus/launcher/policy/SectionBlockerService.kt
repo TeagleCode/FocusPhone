@@ -2,6 +2,9 @@ package com.focus.launcher.policy
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.content.ComponentName
+import android.content.Context
+import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.focus.launcher.data.BlockedSection
@@ -18,13 +21,18 @@ import com.focus.launcher.data.PolicyStore
  */
 class SectionBlockerService : AccessibilityService() {
 
-    private lateinit var store: PolicyStore
+    private val store by lazy { PolicyStore(this) }
     private var lastActionMs = 0L
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        store = PolicyStore(this)
+        instance = this
         applyScope()
+    }
+
+    override fun onUnbind(intent: android.content.Intent?): Boolean {
+        instance = null
+        return super.onUnbind(intent)
     }
 
     /** Re-reads the watch list and narrows the service to those packages. */
@@ -56,22 +64,14 @@ class SectionBlockerService : AccessibilityService() {
             lastActionMs = now
             performGlobalAction(GLOBAL_ACTION_BACK)
         }
-        root.recycle()
     }
 
     private fun matches(root: AccessibilityNodeInfo, section: BlockedSection): Boolean {
         section.viewIdHints.forEach { id ->
-            val hits = root.findAccessibilityNodeInfosByViewId(id)
-            if (hits.isNotEmpty()) {
-                hits.forEach { it.recycle() }
-                return true
-            }
+            if (root.findAccessibilityNodeInfosByViewId(id).isNotEmpty()) return true
         }
         section.textHints.forEach { text ->
-            val hits = root.findAccessibilityNodeInfosByText(text)
-            val visible = hits.any { it.isVisibleToUser }
-            hits.forEach { it.recycle() }
-            if (visible) return true
+            if (root.findAccessibilityNodeInfosByText(text).any { it.isVisibleToUser }) return true
         }
         return false
     }
@@ -81,6 +81,29 @@ class SectionBlockerService : AccessibilityService() {
     companion object {
         private const val DEBOUNCE_MS = 600L
         private const val NO_MATCH = "com.focus.launcher.nomatch"
+
+        @Volatile private var instance: SectionBlockerService? = null
+
+        /**
+         * Called whenever the watch list changes. Without this the scope would
+         * only be recalculated when the service reconnects, so a newly added
+         * app would go unwatched — and a removed one would keep being watched.
+         */
+        fun refreshScope() {
+            instance?.applyScope()
+        }
+
+        /** Whether the user has switched the service on in system settings. */
+        fun isEnabled(context: Context): Boolean {
+            val expected = ComponentName(context, SectionBlockerService::class.java)
+            val enabled = Settings.Secure.getString(
+                context.contentResolver,
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            ).orEmpty()
+            return enabled.split(':').any {
+                ComponentName.unflattenFromString(it) == expected
+            }
+        }
 
         /**
          * Starting hints for common short-form feeds. These are best-effort:

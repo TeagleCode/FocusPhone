@@ -7,10 +7,21 @@ import android.content.Context
 import com.focus.launcher.data.AppRule
 import com.focus.launcher.data.PolicyStore
 import com.focus.launcher.data.RestrictionType
+import com.focus.launcher.data.UnlockKind
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+
+/** Why enforcement is not currently possible, or null when it is. */
+enum class EnforcementBlocker { NOT_DEVICE_OWNER, NO_USAGE_ACCESS }
+
+/** What the launcher should display next to an app. */
+sealed interface AppState {
+    data object Unrestricted : AppState
+    data object Blocked : AppState
+    data class Remaining(val minutes: Int) : AppState
+}
 
 /**
  * Decides which packages should currently be suspended, and applies that
@@ -31,72 +42,130 @@ class Enforcer(private val context: Context) {
 
     fun isDeviceOwner(): Boolean = dpm.isDeviceOwnerApp(context.packageName)
 
+    /**
+     * Usage access is a special-access permission that cannot be requested
+     * from inside the app, and querying without it silently returns nothing —
+     * which would look exactly like "you used no apps today".
+     */
+    fun hasUsageAccess(): Boolean {
+        val start = System.currentTimeMillis() - 24 * 60 * 60 * 1000
+        return usage.queryAndAggregateUsageStats(start, System.currentTimeMillis()).isNotEmpty()
+    }
+
+    fun blocker(): EnforcementBlocker? = when {
+        !isDeviceOwner() -> EnforcementBlocker.NOT_DEVICE_OWNER
+        !hasUsageAccess() -> EnforcementBlocker.NO_USAGE_ACCESS
+        else -> null
+    }
+
     /** Foreground milliseconds used by [pkg] since local midnight. */
-    fun usedTodayMs(pkg: String): Long {
-        val start = startOfDayMs()
-        val stats = usage.queryAndAggregateUsageStats(start, System.currentTimeMillis())
-        return stats[pkg]?.totalTimeInForeground ?: 0L
+    fun usedTodayMs(pkg: String): Long = usageTodayByPackage()[pkg] ?: 0L
+
+    /**
+     * One aggregate query for the whole day, so a screen listing many apps
+     * does not re-query per row.
+     */
+    fun usageTodayByPackage(): Map<String, Long> {
+        val stats = usage.queryAndAggregateUsageStats(startOfDayMs(), System.currentTimeMillis())
+        return stats.mapValues { it.value.totalTimeInForeground }
     }
 
     /**
      * Full evaluation: returns the set of packages that must be suspended
-     * right now, given rules, time used, pending unlocks and reading penalty.
+     * right now, given rules, time used and the reading penalty.
      */
-    fun packagesToSuspend(): Set<String> {
-        val now = System.currentTimeMillis()
-        val today = dateKey(Date(now))
+    fun packagesToSuspend(usageMs: Map<String, Long> = usageTodayByPackage()): Set<String> {
+        val today = dateKey(Date())
         val penaltyActive = store.penaltyDate() == today
 
-        // A pending unlock only exempts a package once it has matured AND
-        // been confirmed by the user.
-        val exempt = store.pendingUnlock()
-            ?.takeIf { it.confirmed && it.isReady(now) }
-            ?.packageName
-
         return store.rules()
-            .filter { it.packageName != exempt }
-            .filter { shouldSuspend(it, penaltyActive) }
+            .filter { shouldSuspend(it, penaltyActive, usageMs[it.packageName] ?: 0L) }
             .map { it.packageName }
             .toSet()
     }
 
-    private fun shouldSuspend(rule: AppRule, penaltyActive: Boolean): Boolean =
+    private fun shouldSuspend(rule: AppRule, penaltyActive: Boolean, usedMs: Long): Boolean =
         when (rule.type) {
             RestrictionType.NONE -> false
             RestrictionType.FULL_BLOCK -> true
-            RestrictionType.TIME_LIMIT -> {
+            RestrictionType.TIME_LIMIT ->
                 // Under penalty, restricted apps get no allowance at all.
-                if (penaltyActive) true
-                else usedTodayMs(rule.packageName) >= rule.dailyLimitMinutes * 60_000L
-            }
+                penaltyActive || usedMs >= rule.dailyLimitMinutes * 60_000L
         }
 
     /**
-     * Applies the current decision. Packages that should no longer be
-     * suspended are released, so a new day restores access automatically.
+     * Applies the current decision.
+     *
+     * Release is driven by what was previously suspended rather than by the
+     * current rule list, so deleting a rule outright still frees its package.
+     * Relying on the rule list would strand it suspended with nothing left to
+     * release it.
      */
     fun apply(): Result<Unit> = runCatching {
         if (!isDeviceOwner()) error("Focus is not the device owner")
 
         val target = packagesToSuspend()
-        val managed = store.rules().map { it.packageName }.toSet()
-        val release = managed - target
+        val release = store.suspendedPackages() - target
 
         if (target.isNotEmpty()) {
             dpm.setPackagesSuspended(admin, target.toTypedArray(), true)
         }
         if (release.isNotEmpty()) {
-            dpm.setPackagesSuspended(admin, release.toTypedArray(), false)
+            // A package uninstalled while suspended would throw here and abort
+            // the whole pass, so release one at a time.
+            release.forEach { pkg ->
+                runCatching { dpm.setPackagesSuspended(admin, arrayOf(pkg), false) }
+            }
+        }
+        store.saveSuspendedPackages(target)
+    }
+
+    /**
+     * Applies a matured, user-confirmed unlock and clears it. Returns false if
+     * the request is not yet ready, so the caller can refuse loudly.
+     */
+    fun confirmUnlock(): Boolean {
+        val pending = store.pendingUnlock() ?: return false
+        if (!pending.isReady()) return false
+
+        when (pending.kind) {
+            UnlockKind.APP ->
+                store.upsertRule(
+                    AppRule(
+                        packageName = pending.target,
+                        type = pending.newType,
+                        dailyLimitMinutes = pending.newLimitMinutes
+                    )
+                )
+            UnlockKind.DOMAIN ->
+                store.saveBlockedDomains(store.blockedDomains() - pending.target)
+        }
+        store.setPendingUnlock(null)
+        apply()
+        return true
+    }
+
+    /** What the home screen shows beside an app. */
+    fun stateOf(pkg: String, usageMs: Map<String, Long>): AppState {
+        val rule = store.ruleFor(pkg) ?: return AppState.Unrestricted
+        val penaltyActive = store.penaltyDate() == dateKey(Date())
+        return when (rule.type) {
+            RestrictionType.NONE -> AppState.Unrestricted
+            RestrictionType.FULL_BLOCK -> AppState.Blocked
+            RestrictionType.TIME_LIMIT -> {
+                if (penaltyActive) return AppState.Blocked
+                val usedMin = ((usageMs[pkg] ?: 0L) / 60_000L).toInt()
+                val left = (rule.dailyLimitMinutes - usedMin).coerceAtLeast(0)
+                if (left == 0) AppState.Blocked else AppState.Remaining(left)
+            }
         }
     }
 
-    /** Remaining allowance in minutes, or null if the app is not time-limited. */
-    fun remainingMinutes(pkg: String): Int? {
-        val rule = store.ruleFor(pkg) ?: return null
-        if (rule.type != RestrictionType.TIME_LIMIT) return null
-        val usedMin = (usedTodayMs(pkg) / 60_000L).toInt()
-        return (rule.dailyLimitMinutes - usedMin).coerceAtLeast(0)
-    }
+    /** Human-readable label for a package, falling back to the package name. */
+    fun labelOf(pkg: String): String = runCatching {
+        val pm = context.packageManager
+        pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+    }.getOrDefault(pkg)
 
     companion object {
         fun dateKey(d: Date): String =

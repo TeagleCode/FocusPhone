@@ -8,6 +8,9 @@ import org.json.JSONObject
 /** How a package is restricted. */
 enum class RestrictionType { NONE, TIME_LIMIT, FULL_BLOCK }
 
+/** What a pending unlock is trying to relax. */
+enum class UnlockKind { APP, DOMAIN }
+
 /** A section inside an app that should be blocked (e.g. Instagram Reels). */
 data class BlockedSection(
     val packageName: String,
@@ -23,19 +26,43 @@ data class AppRule(
     val type: RestrictionType,
     /** Daily allowance in minutes. Only meaningful for TIME_LIMIT. */
     val dailyLimitMinutes: Int = 0
-)
+) {
+    /**
+     * True when [other] would leave the user with less access than this rule.
+     * Tightening applies immediately; anything else has to wait.
+     */
+    fun isTighterThan(other: AppRule?): Boolean {
+        if (other == null) return type != RestrictionType.NONE
+        if (severity(this) > severity(other)) return true
+        if (severity(this) < severity(other)) return false
+        return type == RestrictionType.TIME_LIMIT &&
+            dailyLimitMinutes < other.dailyLimitMinutes
+    }
+
+    private fun severity(rule: AppRule) = when (rule.type) {
+        RestrictionType.NONE -> 0
+        RestrictionType.TIME_LIMIT -> 1
+        RestrictionType.FULL_BLOCK -> 2
+    }
+}
 
 /**
- * A user request to relax a rule. Requests do not take effect immediately:
- * they unlock only after [UNLOCK_DELAY_MS] and require a final confirmation.
+ * A user request to relax a restriction. Requests never take effect when made:
+ * they mature after [UNLOCK_DELAY_MS] and then still require an explicit
+ * confirmation tap. Confirming applies the change and clears the request, so
+ * the "one pending at a time" rule can never deadlock.
  */
 data class PendingUnlock(
-    val packageName: String,
+    val kind: UnlockKind,
+    /** Package name for [UnlockKind.APP], domain for [UnlockKind.DOMAIN]. */
+    val target: String,
     val requestedAtMs: Long,
-    val confirmed: Boolean
+    /** What the rule becomes once applied. Unused for domain removals. */
+    val newType: RestrictionType = RestrictionType.NONE,
+    val newLimitMinutes: Int = 0
 ) {
     fun readyAtMs() = requestedAtMs + UNLOCK_DELAY_MS
-    fun isReady(now: Long) = now >= readyAtMs()
+    fun isReady(now: Long = System.currentTimeMillis()) = now >= readyAtMs()
 
     companion object {
         const val UNLOCK_DELAY_MS = 24L * 60 * 60 * 1000
@@ -114,13 +141,30 @@ class PolicyStore(context: Context) {
         prefs.edit().putString(KEY_SECTIONS, arr.toString()).apply()
     }
 
+    fun upsertSection(section: BlockedSection) {
+        val next = blockedSections().filterNot { it.packageName == section.packageName } + section
+        saveSections(next)
+    }
+
     // ---- Blocked websites ------------------------------------------------
 
     fun blockedDomains(): Set<String> =
-        prefs.getStringSet(KEY_DOMAINS, emptySet()) ?: emptySet()
+        prefs.getStringSet(KEY_DOMAINS, null) ?: emptySet()
 
     fun saveBlockedDomains(domains: Set<String>) {
-        prefs.edit().putStringSet(KEY_DOMAINS, domains).apply()
+        // A defensive copy: SharedPreferences must not be handed a set that
+        // the caller may later mutate.
+        prefs.edit().putStringSet(KEY_DOMAINS, LinkedHashSet(domains)).apply()
+    }
+
+    fun addBlockedDomain(domain: String) {
+        saveBlockedDomains(blockedDomains() + domain)
+    }
+
+    /** Seeds the starter list once, so a fresh install blocks something useful. */
+    fun seedDomainsIfUnset() {
+        if (prefs.contains(KEY_DOMAINS)) return
+        saveBlockedDomains(STARTER_DOMAINS)
     }
 
     // ---- Pending unlocks -------------------------------------------------
@@ -130,9 +174,13 @@ class PolicyStore(context: Context) {
         val raw = prefs.getString(KEY_PENDING, null) ?: return null
         val o = JSONObject(raw)
         return PendingUnlock(
-            packageName = o.getString("pkg"),
+            kind = UnlockKind.valueOf(o.optString("kind", UnlockKind.APP.name)),
+            target = o.getString("target"),
             requestedAtMs = o.getLong("at"),
-            confirmed = o.getBoolean("confirmed")
+            newType = RestrictionType.valueOf(
+                o.optString("newType", RestrictionType.NONE.name)
+            ),
+            newLimitMinutes = o.optInt("newLimit", 0)
         )
     }
 
@@ -142,11 +190,27 @@ class PolicyStore(context: Context) {
             return
         }
         val o = JSONObject().apply {
-            put("pkg", p.packageName)
+            put("kind", p.kind.name)
+            put("target", p.target)
             put("at", p.requestedAtMs)
-            put("confirmed", p.confirmed)
+            put("newType", p.newType.name)
+            put("newLimit", p.newLimitMinutes)
         }
         prefs.edit().putString(KEY_PENDING, o.toString()).apply()
+    }
+
+    // ---- Suspension bookkeeping -----------------------------------------
+
+    /**
+     * Everything Focus has suspended, whether or not a rule still covers it.
+     * Without this, deleting a rule would strand its package in a suspended
+     * state with nothing left to release it.
+     */
+    fun suspendedPackages(): Set<String> =
+        prefs.getStringSet(KEY_SUSPENDED, null) ?: emptySet()
+
+    fun saveSuspendedPackages(pkgs: Set<String>) {
+        prefs.edit().putStringSet(KEY_SUSPENDED, LinkedHashSet(pkgs)).apply()
     }
 
     // ---- Reading penalty state ------------------------------------------
@@ -165,6 +229,14 @@ class PolicyStore(context: Context) {
         prefs.edit().putString(KEY_PENALTY_DATE, date).apply()
     }
 
+    // ---- Setup -----------------------------------------------------------
+
+    fun isSetupComplete(): Boolean = prefs.getBoolean(KEY_SETUP_DONE, false)
+
+    fun markSetupComplete() {
+        prefs.edit().putBoolean(KEY_SETUP_DONE, true).apply()
+    }
+
     // ---- API key ---------------------------------------------------------
 
     /** Anthropic key for quiz generation. Supplied by the user, never bundled. */
@@ -174,6 +246,10 @@ class PolicyStore(context: Context) {
         prefs.edit().putString(KEY_API, key.trim()).apply()
     }
 
+    /** Enough to confirm a key is stored without showing it back. */
+    fun apiKeyFingerprint(): String? =
+        apiKey()?.takeIf { it.isNotBlank() }?.let { "saved · ends ${it.takeLast(4)}" }
+
     companion object {
         private const val KEY_API = "api_key"
         private const val KEY_RULES = "rules"
@@ -182,6 +258,15 @@ class PolicyStore(context: Context) {
         private const val KEY_PENDING = "pending_unlock"
         private const val KEY_QUIZ_DATE = "quiz_date"
         private const val KEY_PENALTY_DATE = "penalty_date"
+        private const val KEY_SUSPENDED = "suspended"
+        private const val KEY_SETUP_DONE = "setup_done"
+
+        /** A starting point, not a complete list. The user extends it. */
+        val STARTER_DOMAINS = setOf(
+            "pornhub.com", "xvideos.com", "xhamster.com", "xnxx.com",
+            "redtube.com", "youporn.com", "spankbang.com", "onlyfans.com",
+            "chaturbate.com", "stripchat.com", "rule34.xxx"
+        )
     }
 }
 

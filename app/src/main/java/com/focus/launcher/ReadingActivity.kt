@@ -13,13 +13,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,7 +33,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Daily reading: open an EPUB, read a chapter, answer questions about it.
+ * Daily reading: open a book, read a chapter, answer questions about it.
  *
  * Failing the quiz restricts the apps that already carry a rule for the
  * following day. Calls, messages, maps, banking and transport are never
@@ -44,7 +46,7 @@ class ReadingActivity : ComponentActivity() {
     }
 }
 
-private enum class Stage { PICK, CHAPTERS, READ, QUIZ, RESULT }
+private enum class Stage { PICK, PASTE, CHAPTERS, READ, QUIZ, RESULT }
 
 @Composable
 private fun ReadingScreen() {
@@ -57,26 +59,28 @@ private fun ReadingScreen() {
     var chapter by remember { mutableStateOf<Chapter?>(null) }
     var questions by remember { mutableStateOf<List<QuizQuestion>>(emptyList()) }
     var answers by remember { mutableStateOf<Map<Int, Int>>(emptyMap()) }
+    var pasted by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var score by remember { mutableStateOf(0) }
 
-    val picker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        if (uri == null) return@rememberLauncherForActivityResult
+    /** Every source is loaded the same way, so adding one changes nothing here. */
+    fun load(source: ChapterSource) {
         busy = true
         error = null
         scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching { EpubReader.chapters(context, uri) }
-            }
+            val result = withContext(Dispatchers.IO) { runCatching { source.chapters() } }
             busy = false
-            result.onSuccess {
-                if (it.isEmpty()) error = "No readable text found. The file may be DRM-protected."
-                else { chapters = it; stage = Stage.CHAPTERS }
-            }.onFailure { error = "Could not open that file." }
+            result
+                .onSuccess { chapters = it; stage = Stage.CHAPTERS }
+                .onFailure { error = it.userMessage() }
         }
+    }
+
+    val picker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) load(EpubSource(context, uri))
     }
 
     Column(
@@ -91,9 +95,52 @@ private fun ReadingScreen() {
             Stage.PICK -> {
                 Heading("today's reading")
                 Spacer(Modifier.height(10.dp))
-                Body("Open an EPUB, read a chapter, then answer questions on it.")
+                Body(
+                    "Open an EPUB and read a chapter, then answer questions on it. " +
+                        "For a book that will not open — a PDF, or a DRM-protected " +
+                        "file — paste the text instead."
+                )
                 Spacer(Modifier.height(26.dp))
-                Action("open a book") { picker.launch(arrayOf("application/epub+zip", "*/*")) }
+                Action("open a book") {
+                    picker.launch(arrayOf("application/epub+zip", "*/*"))
+                }
+                Spacer(Modifier.height(10.dp))
+                Action("paste text instead") { error = null; stage = Stage.PASTE }
+            }
+
+            Stage.PASTE -> {
+                Heading("paste the text")
+                Spacer(Modifier.height(10.dp))
+                Body("Paste a chapter. A few paragraphs is the minimum.")
+                Spacer(Modifier.height(18.dp))
+                BasicTextField(
+                    value = pasted,
+                    onValueChange = { pasted = it },
+                    textStyle = TextStyle(color = Focus.Primary, fontSize = 15.sp, lineHeight = 23.sp),
+                    cursorBrush = SolidColor(Focus.Secondary),
+                    decorationBox = { inner ->
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(Focus.RadiusField))
+                                .background(Focus.Surface)
+                                .padding(16.dp)
+                        ) {
+                            if (pasted.isEmpty()) {
+                                Text("chapter text", color = Focus.Tertiary, fontSize = 15.sp)
+                            }
+                            inner()
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                )
+                Spacer(Modifier.height(16.dp))
+                Action(if (busy) "reading…" else "use this text") {
+                    if (!busy) load(PastedTextSource(pasted))
+                }
+                Spacer(Modifier.height(24.dp))
             }
 
             Stage.CHAPTERS -> {
@@ -147,15 +194,17 @@ private fun ReadingScreen() {
                         error = "Add an Anthropic API key in settings first."
                         return@Action
                     }
+                    val current = chapter ?: return@Action
                     busy = true
                     error = null
                     scope.launch {
                         val result = withContext(Dispatchers.IO) {
-                            runCatching { QuizGenerator(key).generate(chapter!!) }
+                            runCatching { QuizGenerator(key).generate(current) }
                         }
                         busy = false
-                        result.onSuccess { questions = it; answers = emptyMap(); stage = Stage.QUIZ }
-                            .onFailure { error = "Could not generate questions. Check the key and your connection." }
+                        result
+                            .onSuccess { questions = it; answers = emptyMap(); stage = Stage.QUIZ }
+                            .onFailure { error = it.userMessage() }
                     }
                 }
                 Spacer(Modifier.height(24.dp))
@@ -194,17 +243,25 @@ private fun ReadingScreen() {
                         Spacer(Modifier.height(26.dp))
                     }
                 }
+                val unanswered = questions.indices.count { answers[it] == null }
+                if (unanswered > 0) {
+                    Text(
+                        "$unanswered still unanswered",
+                        color = Focus.Tertiary,
+                        fontSize = Focus.MetaSize
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
                 Action("submit") {
                     score = questions.indices.count { answers[it] == questions[it].correctIndex }
-                    val passed = score * 2 >= questions.size
-                    ReadingPenalty(context).recordResult(passed, score, questions.size)
+                    ReadingPenalty(context).recordResult(score, questions.size)
                     stage = Stage.RESULT
                 }
                 Spacer(Modifier.height(24.dp))
             }
 
             Stage.RESULT -> {
-                val passed = score * 2 >= questions.size
+                val passed = ReadingPenalty.passes(score, questions.size)
                 Heading(if (passed) "passed" else "not passed")
                 Spacer(Modifier.height(12.dp))
                 Body("$score of ${questions.size} correct.")
@@ -223,6 +280,10 @@ private fun ReadingScreen() {
         }
     }
 }
+
+/** Sources phrase their own failures; anything else gets a generic line. */
+private fun Throwable.userMessage(): String =
+    (this as? ReadingSourceException)?.message ?: "Something went wrong. Try again."
 
 @Composable
 private fun Heading(text: String) = Text(

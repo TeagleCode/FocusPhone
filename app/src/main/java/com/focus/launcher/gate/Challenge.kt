@@ -1,8 +1,18 @@
 package com.focus.launcher.gate
 
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.random.Random
+
+/**
+ * Answers are compared as numbers, so they must be produced with a fixed
+ * decimal separator. On a device set to a comma-decimal locale the default
+ * formatter would emit "12,34", which never parses back to a Double and would
+ * make every trig question impossible to answer.
+ */
+private fun fixed(value: Double, decimals: Int = 2): String =
+    String.format(Locale.US, "%.${decimals}f", value)
 
 /**
  * A gate the user must pass before any restriction can be changed.
@@ -18,17 +28,31 @@ data class Challenge(
         val given = input.trim().lowercase()
         val expected = answer.trim().lowercase()
         if (given == expected) return true
-        // Numeric tolerance for trig answers.
-        val g = given.toDoubleOrNull() ?: return false
+        // Numeric tolerance for trig answers. A comma is accepted as a decimal
+        // separator because that is what many keyboard layouts produce.
+        val g = given.replace(',', '.').toDoubleOrNull() ?: return false
         val e = expected.toDoubleOrNull() ?: return false
-        return abs(g - e) < 0.02
+        return abs(g - e) <= 0.02
     }
 }
 
 object ChallengeGenerator {
 
-    fun next(rng: Random = Random.Default): Challenge =
-        if (rng.nextBoolean()) trig(rng) else riddle(rng)
+    /**
+     * [avoid] is the question that was just failed. It is excluded so a wrong
+     * answer can never hand back the same question — otherwise the pool of
+     * riddles is small enough to repeat by chance, and the gate becomes
+     * retryable.
+     */
+    fun next(rng: Random = Random.Default, avoid: Challenge? = null): Challenge {
+        repeat(24) {
+            val candidate = if (rng.nextBoolean()) trig(rng) else riddle(rng)
+            if (candidate.prompt != avoid?.prompt) return candidate
+        }
+        // Pathological case only: fall back to a generated question, which has
+        // a far larger space than the fixed riddle list.
+        return trig(rng)
+    }
 
     // ---- Trigonometry (senior secondary level) ---------------------------
 
@@ -49,7 +73,7 @@ object ChallengeGenerator {
         return Challenge(
             prompt = "In triangle ABC, a = $a, b = $b, and angle C = $cDeg°.\n\n" +
                 "Find side c, correct to 2 decimal places.",
-            answer = String.format("%.2f", c),
+            answer = fixed(c),
             hint = "c² = a² + b² − 2ab·cos C"
         )
     }
@@ -63,7 +87,7 @@ object ChallengeGenerator {
         return Challenge(
             prompt = "In triangle ABC, angle A = $aDeg°, angle B = $bDeg°, and side a = $a.\n\n" +
                 "Find side b, correct to 2 decimal places.",
-            answer = String.format("%.2f", b),
+            answer = fixed(b),
             hint = "a / sin A = b / sin B"
         )
     }
@@ -76,7 +100,7 @@ object ChallengeGenerator {
             Triple("tan", 1.0, 45), Triple("tan", Math.sqrt(3.0), 60)
         ).random(rng)
         val (fn, value, deg) = known
-        val shown = String.format("%.4f", value)
+        val shown = fixed(value, 4)
         return Challenge(
             prompt = "Solve for x in the interval 0° ≤ x < 360°:\n\n" +
                 "$fn(x) = $shown\n\n" +
