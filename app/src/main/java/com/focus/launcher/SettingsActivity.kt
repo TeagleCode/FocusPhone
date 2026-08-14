@@ -60,6 +60,13 @@ private fun SettingsRoot() {
  */
 @Composable
 private fun GateScreen(onPass: () -> Unit) {
+    val context = LocalContext.current
+    val required = remember { PolicyStore(context).gateProblemCount() }
+
+    // Every prompt seen this sitting, so neither a wrong answer nor a later
+    // question in the same run can hand back one already shown.
+    val seen = remember { mutableStateListOf<String>() }
+    var solved by remember { mutableStateOf(0) }
     var challenge by remember { mutableStateOf(ChallengeGenerator.next()) }
     var input by remember { mutableStateOf("") }
     var wrong by remember { mutableStateOf(false) }
@@ -76,7 +83,8 @@ private fun GateScreen(onPass: () -> Unit) {
         Spacer(Modifier.height(88.dp))
 
         Text(
-            "solve to continue",
+            if (required == 1) "solve to continue"
+            else "solve ${solved + 1} of $required",
             color = Focus.Tertiary,
             fontSize = Focus.MetaSize,
             letterSpacing = 1.2.sp
@@ -143,14 +151,22 @@ private fun GateScreen(onPass: () -> Unit) {
             text = "check",
             emphasis = true,
             onClick = {
-                if (challenge.accepts(input)) onPass()
-                else {
+                val correct = challenge.accepts(input)
+                seen.add(challenge.prompt)
+                input = ""
+                if (correct) {
+                    solved++
+                    wrong = false
+                    showHint = false
+                    if (solved >= required) return@PressableLabel onPass()
+                } else {
+                    // A failed question is spent: it is added to the seen set
+                    // like any other, so the gate can never be brute-forced by
+                    // guessing at the same question twice.
                     wrong = true
-                    input = ""
                     showHint = true
-                    // Exclude the failed question so it can never come back.
-                    challenge = ChallengeGenerator.next(avoid = challenge)
                 }
+                challenge = ChallengeGenerator.next(avoid = seen.toSet())
             }
         )
 
@@ -208,6 +224,19 @@ private fun SettingsScreen() {
                     UnlockKind.DOMAIN -> p.target
                     else -> enforcer.labelOf(p.target)
                 },
+                emergencyArmed = store.emergencyReady(),
+                onEmergency = { code ->
+                    if (!store.checkEmergencyCode(code)) {
+                        notice = "That code is not right."
+                        false
+                    } else {
+                        enforcer.confirmUnlock(force = true)
+                        notice = "Applied with your emergency code."
+                        pending = store.pendingUnlock()
+                        rules = store.rules()
+                        true
+                    }
+                },
                 onConfirm = {
                     if (enforcer.confirmUnlock()) {
                         notice = null
@@ -251,7 +280,15 @@ private fun SettingsScreen() {
             context.startActivity(Intent(context, SetupActivity::class.java))
         }
 
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(28.dp))
+
+        GateLengthControl(store)
+
+        Spacer(Modifier.height(28.dp))
+
+        EmergencyCodeSection(store)
+
+        Spacer(Modifier.height(28.dp))
 
         ApiKeyField(store)
 
@@ -283,6 +320,8 @@ private fun SettingsScreen() {
 private fun PendingUnlockCard(
     pending: PendingUnlock,
     label: String,
+    emergencyArmed: Boolean,
+    onEmergency: (String) -> Boolean,
     onConfirm: () -> Unit,
     onCancel: () -> Unit
 ) {
@@ -333,6 +372,35 @@ private fun PendingUnlockCard(
             // is always allowed and takes effect immediately.
             PressableLabel("cancel request", emphasis = false, onClick = onCancel)
         }
+
+        // Only offered once the code has been armed for 24 hours, and only
+        // while the request is still waiting — after that, confirm is enough.
+        if (emergencyArmed && !ready) {
+            var code by remember { mutableStateOf("") }
+            var open by remember { mutableStateOf(false) }
+
+            Spacer(Modifier.height(14.dp))
+            if (!open) {
+                PressableLabel("use emergency code", emphasis = false) { open = true }
+            } else {
+                Text(
+                    "This applies the request now, skipping the remaining wait.",
+                    color = Focus.Tertiary,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp
+                )
+                Spacer(Modifier.height(10.dp))
+                CodeField(value = code, placeholder = "code", onValueChange = { code = it })
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    PressableLabel("apply now", emphasis = true) {
+                        if (onEmergency(code)) code = ""
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    PressableLabel("never mind", emphasis = false) { open = false; code = "" }
+                }
+            }
+        }
     }
 }
 
@@ -377,6 +445,172 @@ private fun NavLink(label: String, onClick: () -> Unit) {
         Text(label, color = Focus.Primary, fontSize = 16.sp, modifier = Modifier.weight(1f))
         Text("›", color = Focus.Ghost, fontSize = 18.sp)
     }
+}
+
+/**
+ * How many problems the gate asks for.
+ *
+ * Both directions take effect immediately, and that is defensible: you had to
+ * pass the current, longer gate to reach this screen at all, so lowering it
+ * has already cost you the price you set.
+ */
+@Composable
+private fun GateLengthControl(store: PolicyStore) {
+    var count by remember { mutableStateOf(store.gateProblemCount()) }
+
+    fun set(next: Int) {
+        val clamped = next.coerceIn(1, PolicyStore.MAX_GATE_PROBLEMS)
+        count = clamped
+        store.setGateProblemCount(clamped)
+    }
+
+    Column {
+        Text("problems to enter settings", color = Focus.Tertiary, fontSize = 12.sp, letterSpacing = 1.2.sp)
+        Spacer(Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "−",
+                color = if (count > 1) Focus.Primary else Focus.Ghost,
+                fontSize = 20.sp,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(Focus.RadiusRow))
+                    .background(Focus.Surface)
+                    .clickable { set(count - 1) }
+                    .padding(horizontal = 24.dp, vertical = 10.dp)
+            )
+            Text(
+                count.toString(),
+                color = Focus.Primary,
+                fontSize = 22.sp,
+                modifier = Modifier.padding(horizontal = 22.dp)
+            )
+            Text(
+                "+",
+                color = if (count < PolicyStore.MAX_GATE_PROBLEMS) Focus.Primary else Focus.Ghost,
+                fontSize = 20.sp,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(Focus.RadiusRow))
+                    .background(Focus.Surface)
+                    .clickable { set(count + 1) }
+                    .padding(horizontal = 24.dp, vertical = 10.dp)
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "Drawn from more than ${"%,d".format(ChallengeGenerator.VERIFIED_MIN_VARIANTS)} " +
+                "distinct problems across trigonometry, algebra, sequences, number, " +
+                "geometry, statistics and logic. None repeats within a sitting.",
+            color = Focus.Ghost,
+            fontSize = 12.sp,
+            lineHeight = 18.sp
+        )
+    }
+}
+
+/**
+ * The optional way past a 24-hour wait.
+ *
+ * It arms on the same 24-hour delay, and that is the entire point: a code you
+ * could set at the moment you wanted to bypass something would not be an
+ * emergency key, it would be a cancel button on the whole app.
+ */
+@Composable
+private fun EmergencyCodeSection(store: PolicyStore) {
+    var isSet by remember { mutableStateOf(store.emergencyCodeSet()) }
+    var readyAt by remember { mutableStateOf(store.emergencyReadyAtMs()) }
+    var draft by remember { mutableStateOf("") }
+    var note by remember { mutableStateOf<String?>(null) }
+
+    val now = System.currentTimeMillis()
+    val ready = isSet && now >= readyAt
+    val waitMs = (readyAt - now).coerceAtLeast(0)
+
+    Column {
+        Text("emergency code", color = Focus.Tertiary, fontSize = 12.sp, letterSpacing = 1.2.sp)
+        Spacer(Modifier.height(10.dp))
+        Text(
+            if (!isSet) {
+                "Off. With a code set, you can apply a pending unlock immediately " +
+                    "instead of waiting out the 24 hours. It arms 24 hours after you " +
+                    "set it, so it is there for a real emergency but useless as a way " +
+                    "around the wait you just started."
+            } else if (!ready) {
+                "Set, but not armed yet. Ready in ${TimeUnit.MILLISECONDS.toHours(waitMs)}h " +
+                    "${TimeUnit.MILLISECONDS.toMinutes(waitMs) % 60}m."
+            } else {
+                "Armed. Enter it on a pending request to apply that request at once."
+            },
+            color = Focus.Tertiary,
+            fontSize = 12.sp,
+            lineHeight = 18.sp
+        )
+
+        note?.let {
+            Spacer(Modifier.height(10.dp))
+            Text(it, color = Focus.Secondary, fontSize = 12.sp, lineHeight = 18.sp)
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        CodeField(
+            value = draft,
+            placeholder = if (isSet) "new code" else "choose a code",
+            onValueChange = { draft = it }
+        )
+
+        Spacer(Modifier.height(10.dp))
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            PressableLabel(if (isSet) "replace code" else "set code", emphasis = true) {
+                if (draft.length < 4) {
+                    note = "Use at least 4 characters."
+                } else {
+                    store.setEmergencyCode(draft)
+                    draft = ""
+                    isSet = true
+                    readyAt = store.emergencyReadyAtMs()
+                    note = "Saved. It arms in 24 hours."
+                }
+            }
+            if (isSet) {
+                Spacer(Modifier.width(8.dp))
+                // Giving up the escape hatch is a tightening, so it is instant.
+                PressableLabel("remove", emphasis = false) {
+                    store.clearEmergencyCode()
+                    isSet = false
+                    readyAt = 0L
+                    draft = ""
+                    note = "Removed."
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CodeField(value: String, placeholder: String, onValueChange: (String) -> Unit) {
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        singleLine = true,
+        textStyle = TextStyle(color = Focus.Primary, fontSize = 16.sp),
+        cursorBrush = SolidColor(Focus.Secondary),
+        decorationBox = { inner ->
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(Focus.RadiusField))
+                    .background(Focus.Surface)
+                    .padding(horizontal = 18.dp, vertical = 15.dp)
+            ) {
+                if (value.isEmpty()) {
+                    Text(placeholder, color = Focus.Tertiary, fontSize = 16.sp)
+                }
+                inner()
+            }
+        },
+        modifier = Modifier.fillMaxWidth()
+    )
 }
 
 /** The key is stored on-device only and is never shown back in full. */

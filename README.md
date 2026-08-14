@@ -85,9 +85,46 @@ does not watch, and recover time that passed while the service was off.
 
 **settings → choose apps.** Nothing is restricted by default.
 
-Getting into settings requires solving one maths problem or logic riddle. A
-wrong answer replaces it with a different question — you cannot retry the same
-one until you guess it.
+---
+
+## The gate
+
+Getting into settings costs you a problem. A wrong answer is spent — it is
+replaced by a different question, so you cannot sit and guess at the same one.
+
+**Choose how many.** *settings → problems to enter settings*, anywhere from 1
+to 10. Set it to 5 and opening settings is a genuine decision rather than a
+reflex.
+
+Problems are generated, not stored. Around fifty templates across
+trigonometry, algebra, sequences, number theory, geometry, statistics and
+logic, each covering hundreds or thousands of variations: law of cosines,
+simultaneous equations, quadratics, logarithms, arithmetic and geometric
+series, GCD and LCM, circle and solid geometry, coordinate geometry, compound
+interest, probability, combinations, clock angles, knights and knaves. More
+than **200,000 distinct problems** — a figure a unit test asserts, so the app
+cannot claim a pool it does not have.
+
+That approach costs about **48 KB** in the APK. The same number of problems
+written out as text would be roughly 30 MB.
+
+---
+
+## The emergency code
+
+Optional, and off unless you turn it on. With a code set, you can apply a
+pending unlock immediately instead of waiting out the 24 hours — for when you
+genuinely need an app now.
+
+**It arms 24 hours after you set it.** That delay is the whole point. A code
+you could set at the moment you wanted to bypass something would not be an
+emergency key, it would be a cancel button on the entire app. Armed in
+advance, it is a key cut before the emergency rather than during it.
+
+Removing it takes effect at once, because giving up an escape hatch is a
+tightening. The code is stored only as a salted hash.
+
+*settings → emergency code.*
 
 ---
 

@@ -367,6 +367,76 @@ class PolicyStore(context: Context) {
         prefs.edit().putBoolean(KEY_SETUP_DONE, true).apply()
     }
 
+    // ---- The gate --------------------------------------------------------
+
+    /** How many problems must be solved to get into settings. */
+    fun gateProblemCount(): Int =
+        prefs.getInt(KEY_GATE_COUNT, 1).coerceIn(1, MAX_GATE_PROBLEMS)
+
+    fun setGateProblemCount(count: Int) {
+        prefs.edit().putInt(KEY_GATE_COUNT, count.coerceIn(1, MAX_GATE_PROBLEMS)).apply()
+    }
+
+    // ---- Emergency code --------------------------------------------------
+
+    /**
+     * An optional way out of the 24-hour wait, for the times when you genuinely
+     * need an app now.
+     *
+     * The code is stored only as a salted hash — there is no reason for the
+     * app to be able to read it back, and a plaintext code sitting in
+     * preferences would be readable by anything with the file.
+     *
+     * Crucially it arms on a delay. If enabling it worked immediately, the
+     * whole delayed-unlock mechanic would be theatre: you would simply set a
+     * code at the moment you wanted to bypass something. Armed in advance, it
+     * is a key cut before the emergency rather than during it.
+     */
+    fun emergencyCodeSet(): Boolean = prefs.contains(KEY_EMERGENCY_HASH)
+
+    fun emergencyArmedAtMs(): Long = prefs.getLong(KEY_EMERGENCY_ARMED, 0L)
+
+    fun emergencyReadyAtMs(): Long = emergencyArmedAtMs() + EMERGENCY_ARM_DELAY_MS
+
+    fun emergencyReady(now: Long = System.currentTimeMillis()): Boolean =
+        emergencyCodeSet() && now >= emergencyReadyAtMs()
+
+    fun setEmergencyCode(code: String) {
+        val salt = prefs.getString(KEY_EMERGENCY_SALT, null) ?: newSalt()
+        prefs.edit()
+            .putString(KEY_EMERGENCY_SALT, salt)
+            .putString(KEY_EMERGENCY_HASH, hashCode(code, salt))
+            .putLong(KEY_EMERGENCY_ARMED, System.currentTimeMillis())
+            .apply()
+    }
+
+    /** Removing the escape hatch is a tightening, so it takes effect at once. */
+    fun clearEmergencyCode() {
+        prefs.edit()
+            .remove(KEY_EMERGENCY_HASH)
+            .remove(KEY_EMERGENCY_SALT)
+            .remove(KEY_EMERGENCY_ARMED)
+            .apply()
+    }
+
+    fun checkEmergencyCode(code: String): Boolean {
+        val stored = prefs.getString(KEY_EMERGENCY_HASH, null) ?: return false
+        val salt = prefs.getString(KEY_EMERGENCY_SALT, null) ?: return false
+        return stored == hashCode(code, salt)
+    }
+
+    private fun newSalt(): String {
+        val bytes = ByteArray(16)
+        java.security.SecureRandom().nextBytes(bytes)
+        return bytes.joinToString("") { "%02x".format(it) }
+    }
+
+    private fun hashCode(code: String, salt: String): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        return digest.digest((salt + code.trim()).toByteArray())
+            .joinToString("") { "%02x".format(it) }
+    }
+
     // ---- API key ---------------------------------------------------------
 
     /** Anthropic key for quiz generation. Supplied by the user, never bundled. */
@@ -394,6 +464,15 @@ class PolicyStore(context: Context) {
         private const val KEY_LAST_BLOCK = "last_block"
         private const val KEY_SECTION_SCHEMA = "sections_schema"
         private const val SECTION_SCHEMA = 2
+        private const val KEY_GATE_COUNT = "gate_count"
+        private const val KEY_EMERGENCY_HASH = "emergency_hash"
+        private const val KEY_EMERGENCY_SALT = "emergency_salt"
+        private const val KEY_EMERGENCY_ARMED = "emergency_armed"
+
+        const val MAX_GATE_PROBLEMS = 10
+
+        /** Matches the unlock delay: the key must be cut before the emergency. */
+        const val EMERGENCY_ARM_DELAY_MS = PendingUnlock.UNLOCK_DELAY_MS
 
         /**
          * The hints shipped before v0.1.1, kept only so they can be

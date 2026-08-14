@@ -220,10 +220,13 @@ class Enforcer(private val context: Context) {
     /**
      * Applies a matured, user-confirmed unlock and clears it. Returns false if
      * the request is not yet ready, so the caller can refuse loudly.
+     *
+     * [force] skips the maturity check, and is only ever passed after a
+     * correct emergency code — which itself had to be armed 24 hours earlier.
      */
-    fun confirmUnlock(): Boolean {
+    fun confirmUnlock(force: Boolean = false): Boolean {
         val pending = store.pendingUnlock() ?: return false
-        if (!pending.isReady()) return false
+        if (!force && !pending.isReady()) return false
 
         when (pending.kind) {
             UnlockKind.APP ->

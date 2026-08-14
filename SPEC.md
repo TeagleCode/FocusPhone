@@ -154,16 +154,28 @@ apps. Fully blocked apps stay blocked.
 Getting into settings, and every change made inside it, is deliberately
 expensive. Implement exactly this:
 
-**Entering settings** requires solving one challenge, generated locally:
+**Entering settings** requires solving a configurable number of challenges
+(1–10, set in settings), all generated locally:
 
-- Roughly half trigonometry at senior-secondary level: law of cosines, law of
-  sines, solving `sin x = k` on `[0°, 360°)`, period and amplitude of
-  `a·sin(bx) + c`, exact values in non-first quadrants. Numeric answers
-  accepted within ±0.02.
-- Roughly half logic riddles with a single unambiguous word or number answer.
+- Around fifty generators across seven topics — trigonometry, algebra,
+  sequences, number, geometry, applied/statistics, and logic — all at
+  senior-secondary level. Do not raise the difficulty; raise the count if more
+  friction is wanted.
+- Problems are **generated from parameterised templates, never stored**. A
+  written-out list of comparable depth would add tens of megabytes to the APK;
+  the generators cost about 48 KB and yield a verified 200,000+ distinct
+  prompts. Do not replace them with a bundled list.
+- Numeric answers accepted within ±0.02, with a fixed decimal separator so
+  comma-decimal locales still work. Word answers accept a small set of
+  spellings.
 - A wrong answer discards the question and generates a different one. The same
-  question must never be retryable.
+  question must never be retryable, and must not recur later in the same
+  sitting either — the gate tracks every prompt already shown.
 - Show the hint only after a failed attempt.
+- `ChallengeGeneratorTest` asserts that every generated challenge accepts its
+  own answer, that wrong answers are rejected, and that the pool is at least as
+  deep as the number the UI claims. A defect here locks the user out of their
+  own phone, so it is checked by exhaustion rather than by eye.
 
 **Adding or tightening a restriction** applies immediately. No gate beyond
 entry — making things stricter should be frictionless.
@@ -185,7 +197,16 @@ while a request is outstanding must be refused with a clear message.
 Cancelling a pending request is always allowed and takes effect immediately —
 backing out of a relaxation is not a relaxation.
 
-Removing a blocked domain follows the same delayed path.
+Removing a blocked domain follows the same delayed path, as does removing an
+app's social-media flag.
+
+**Emergency code (optional, off by default).** A user-set code that applies a
+pending unlock immediately, for when an app is genuinely needed now. It arms
+only 24 hours after being set, and this is not negotiable: a code that worked
+the moment it was set would let anyone bypass any wait by setting one, which
+would reduce the delayed-unlock mechanic to decoration. Removing the code is
+instant, being a tightening. Store it as a salted hash — the app never needs
+to read it back.
 
 ---
 
