@@ -217,6 +217,39 @@ class PolicyStore(context: Context) {
         saveSections(next)
     }
 
+    /**
+     * Repairs sections still carrying the hints that closed all of Instagram.
+     *
+     * Changing the shipped defaults only helps someone enabling a section for
+     * the first time — anyone who already turned one on has the broken hints
+     * saved in their own preferences, and would have to know to toggle it off
+     * and on again. Nobody knows that.
+     *
+     * Only hint sets that are byte-for-byte the old defaults are replaced, so
+     * anything hand-tuned is left alone, and a version flag stops it running
+     * more than once.
+     */
+    fun migrateSections(current: List<BlockedSection>) {
+        if (prefs.getInt(KEY_SECTION_SCHEMA, 1) >= SECTION_SCHEMA) return
+
+        val presets = current.associateBy { it.packageName }
+        val repaired = blockedSections().map { stored ->
+            val preset = presets[stored.packageName] ?: return@map stored
+            val broken = LEGACY_BROKEN_SECTIONS[stored.packageName]
+            if (broken != null &&
+                stored.viewIdHints == broken.first &&
+                stored.textHints == broken.second
+            ) {
+                stored.copy(viewIdHints = preset.viewIdHints, textHints = preset.textHints)
+            } else {
+                stored
+            }
+        }
+
+        saveSections(repaired)
+        prefs.edit().putInt(KEY_SECTION_SCHEMA, SECTION_SCHEMA).apply()
+    }
+
     // ---- Blocked websites ------------------------------------------------
 
     fun blockedDomains(): Set<String> =
@@ -359,6 +392,22 @@ class PolicyStore(context: Context) {
         private const val KEY_SUSPENDED = "suspended"
         private const val KEY_SETUP_DONE = "setup_done"
         private const val KEY_LAST_BLOCK = "last_block"
+        private const val KEY_SECTION_SCHEMA = "sections_schema"
+        private const val SECTION_SCHEMA = 2
+
+        /**
+         * The hints shipped before v0.1.1, kept only so they can be
+         * recognised and replaced. Each matched a navigation button rather
+         * than the feed it opens, which closed the whole app on launch.
+         */
+        private val LEGACY_BROKEN_SECTIONS: Map<String, Pair<List<String>, List<String>>> = mapOf(
+            "com.instagram.android" to
+                (listOf("com.instagram.android:id/clips_tab") to listOf("Reels")),
+            "com.google.android.youtube" to
+                (listOf("com.google.android.youtube:id/reel_recycler") to listOf("Shorts")),
+            "com.zhiliaoapp.musically" to
+                (emptyList<String>() to listOf("For You"))
+        )
 
         /** A starting point, not a complete list. The user extends it. */
         val STARTER_DOMAINS = setOf(

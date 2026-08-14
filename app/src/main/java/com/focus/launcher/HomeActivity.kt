@@ -80,6 +80,10 @@ class HomeActivity : ComponentActivity() {
 
         val store = PolicyStore(this)
         store.seedDomainsIfUnset()
+        // Repairs section hints saved before v0.1.1, which matched a
+        // navigation button and so closed the whole app rather than the feed.
+        store.migrateSections(FocusGuardService.DEFAULT_SECTIONS)
+        FocusGuardService.refreshScope()
         if (!store.isSetupComplete()) {
             startActivity(Intent(this, SetupActivity::class.java))
         }
