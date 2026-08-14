@@ -98,15 +98,23 @@ object ChallengeGenerator {
 
     private val LOGIC = listOf(
         ::agesTotal, ::agesLater, ::handshakes, ::clockAngle, ::dayOfWeek,
-        ::coinCount, ::knightsAndKnaves, ::classicRiddle
+        ::coinCount
     )
+
+    /**
+     * Generated logic puzzles, plus the handful of written riddles that cannot
+     * be generated. Its own topic rather than a corner of LOGIC, because the
+     * others there are arithmetic in a story and these are actual deduction.
+     */
+    private val RIDDLES = Riddles.GENERATORS + listOf(::classicRiddle)
 
     /**
      * Picking a topic first and then a question inside it keeps the mix even.
      * Choosing uniformly across every generator would skew towards whichever
      * topic happens to have the most of them.
      */
-    private val TOPICS = listOf(TRIG, ALGEBRA, SEQUENCES, NUMBERS, GEOMETRY, APPLIED, LOGIC)
+    private val TOPICS =
+        listOf(TRIG, ALGEBRA, SEQUENCES, NUMBERS, GEOMETRY, APPLIED, LOGIC, RIDDLES)
 
     /**
      * [avoid] holds the prompts already used in this sitting — the failed
@@ -889,36 +897,6 @@ object ChallengeGenerator {
             nLarge,
             "If all ${nSmall + nLarge} coins were worth $small, the total would be short."
         )
-    }
-
-    private fun knightsAndKnaves(rng: Random): Challenge {
-        val (a, b) = twoNames(rng)
-        return when (rng.nextInt(3)) {
-            0 -> word(
-                "On an island, knights always tell the truth and knaves always lie.\n\n" +
-                    "$a says: \"I am a knave.\"\n\n" +
-                    "Nobody can truthfully call themselves a knave, and no knave would " +
-                    "admit it either. So what is $a?\n\n" +
-                    "Answer with one word: knight, knave, or impossible.",
-                "impossible",
-                hint = "Test both cases and see whether either is consistent."
-            )
-            1 -> word(
-                "Knights always tell the truth, knaves always lie.\n\n" +
-                    "$a says: \"$b is a knave.\"\n" +
-                    "$b says: \"$a and I are the same kind.\"\n\n" +
-                    "What is $b? Answer with one word.",
-                "knave",
-                hint = "Suppose $b is a knight and check whether the statements can both hold."
-            )
-            else -> word(
-                "Knights always tell the truth, knaves always lie.\n\n" +
-                    "$a says: \"We are both knaves.\"\n\n" +
-                    "What is $a? Answer with one word.",
-                "knave",
-                hint = "A knight could never say it, because it would be false."
-            )
-        }
     }
 
     /**

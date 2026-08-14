@@ -96,14 +96,23 @@ replaced by a different question, so you cannot sit and guess at the same one.
 to 10. Set it to 5 and opening settings is a genuine decision rather than a
 reflex.
 
-Problems are generated, not stored. Around fifty templates across
+Problems are generated, not stored. Around sixty templates across
 trigonometry, algebra, sequences, number theory, geometry, statistics and
 logic, each covering hundreds or thousands of variations: law of cosines,
 simultaneous equations, quadratics, logarithms, arithmetic and geometric
 series, GCD and LCM, circle and solid geometry, coordinate geometry, compound
-interest, probability, combinations, clock angles, knights and knaves. More
-than **200,000 distinct problems** — a figure a unit test asserts, so the app
-cannot claim a pool it does not have.
+interest, probability and combinations. More than **200,000 distinct
+problems** — a figure a unit test asserts, so the app cannot claim a pool it
+does not have.
+
+**The logic puzzles are solved, not scripted.** Knights and knaves, race
+orderings, bridge crossings, jug measuring, weighing puzzles, pigeonhole
+problems. The knight and ordering puzzles are built by generating random
+constraints and then brute-forcing every possible arrangement: a puzzle is
+only ever shown if exactly one arrangement satisfies it. So the deduction is
+real each time rather than a scenario you learn the answer to on the third
+showing — over **30,000 distinct logic puzzles**, against the eleven a written
+list would have given you.
 
 That approach costs about **48 KB** in the APK. The same number of problems
 written out as text would be roughly 30 MB.
