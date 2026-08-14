@@ -9,9 +9,11 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.focus.launcher.data.BlockReason
@@ -268,15 +270,89 @@ class FocusGuardService : AccessibilityService() {
         }
     }
 
+    /**
+     * Whether a blocked section is actually open right now.
+     *
+     * Getting this wrong is worse than not blocking at all. The first version
+     * asked findAccessibilityNodeInfosByViewId whether "clips_tab" existed
+     * anywhere — but that is the Reels *button in the bottom navigation bar*,
+     * which is present on every screen in Instagram, including the inbox. The
+     * text hint "Reels" was no better: it is the content description of that
+     * same button. So opening Instagram at all closed it immediately, and
+     * there was no way to reach messages.
+     *
+     * Presence is not the signal. Instagram pre-inflates the whole Reels
+     * fragment while you sit on the home feed, so the viewer's own ids exist
+     * either way. What actually distinguishes the feed being *open* is that it
+     * is visible and fills the screen — the tab button is a thumbnail, and the
+     * "suggested reels" tray embedded in the home feed is a short strip.
+     */
     private fun matches(root: AccessibilityNodeInfo, section: BlockedSection): Boolean {
-        section.viewIdHints.forEach { id ->
-            if (root.findAccessibilityNodeInfosByViewId(id).isNotEmpty()) return true
-        }
-        section.textHints.forEach { text ->
-            if (root.findAccessibilityNodeInfosByText(text).any { it.isVisibleToUser }) return true
+        if (section.viewIdHints.isEmpty() && section.textHints.isEmpty()) return false
+        val screen = screenBounds() ?: return false
+        return scan(root, section, screen, depth = 0, budget = intArrayOf(MAX_NODES))
+    }
+
+    private fun scan(
+        node: AccessibilityNodeInfo,
+        section: BlockedSection,
+        screen: Rect,
+        depth: Int,
+        budget: IntArray
+    ): Boolean {
+        if (depth > MAX_DEPTH || budget[0] <= 0) return false
+        budget[0]--
+
+        if (nodeMatches(node, section, screen)) return true
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            if (scan(child, section, screen, depth + 1, budget)) return true
         }
         return false
     }
+
+    private fun nodeMatches(
+        node: AccessibilityNodeInfo,
+        section: BlockedSection,
+        screen: Rect
+    ): Boolean {
+        if (!node.isVisibleToUser) return false
+
+        // View-id hints are substrings, so a vendor renaming
+        // clips_viewer_view_pager to clips_viewer_pager does not break them.
+        val id = node.viewIdResourceName
+        if (id != null && section.viewIdHints.any { it.isNotBlank() && id.contains(it, true) }) {
+            if (fillsScreen(node, screen)) return true
+        }
+
+        // Text hints cannot demand a full-screen node, because a label never
+        // is one. They are correspondingly loose and are off by default.
+        if (section.textHints.isNotEmpty()) {
+            val haystack = buildString {
+                node.text?.let { append(it).append(' ') }
+                node.contentDescription?.let { append(it) }
+            }
+            if (haystack.isNotBlank() &&
+                section.textHints.any { it.isNotBlank() && haystack.contains(it, true) }
+            ) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /** A feed being viewed occupies the screen; a tab button or tray does not. */
+    private fun fillsScreen(node: AccessibilityNodeInfo, screen: Rect): Boolean {
+        val bounds = Rect()
+        node.getBoundsInScreen(bounds)
+        return bounds.width() >= screen.width() * WIDTH_FRACTION &&
+            bounds.height() >= screen.height() * HEIGHT_FRACTION
+    }
+
+    private fun screenBounds(): Rect? = runCatching {
+        getSystemService(WindowManager::class.java).currentWindowMetrics.bounds
+    }.getOrNull()
 
     companion object {
         private const val SECTION_DEBOUNCE_MS = 600L
@@ -286,6 +362,14 @@ class FocusGuardService : AccessibilityService() {
         private const val MAX_CREDIT_MS = 15 * 60_000L
         private const val LOOKBACK_MS = 5 * 60_000L
         private const val RESUME_DELAY_MS = 1_200L
+
+        /** Bounds on the tree walk, so a deep feed cannot stall the service. */
+        private const val MAX_DEPTH = 24
+        private const val MAX_NODES = 900
+
+        /** What "the feed is open" means, as a share of the screen. */
+        private const val WIDTH_FRACTION = 0.7f
+        private const val HEIGHT_FRACTION = 0.5f
         private const val NO_MATCH = "com.focus.launcher.nomatch"
 
         @Volatile
@@ -330,28 +414,39 @@ class FocusGuardService : AccessibilityService() {
         }
 
         /**
-         * Starting hints for common short-form feeds. These are best-effort:
-         * vendors change their view ids regularly, so treat them as defaults
-         * the user can edit, not guarantees.
+         * Starting hints for common short-form feeds. Best-effort: vendors
+         * change their view ids regularly, so treat them as defaults the user
+         * can edit, not guarantees.
+         *
+         * These name the *viewer* rather than the tab that opens it. Matching
+         * the tab is what made Instagram unusable — the button lives in the
+         * navigation bar on every screen, so the whole app closed on launch
+         * instead of just the feed. Text hints are empty for the same reason:
+         * "Reels" is that button's content description.
          */
         val DEFAULT_SECTIONS = listOf(
             BlockedSection(
                 packageName = "com.instagram.android",
                 label = "Instagram Reels",
-                viewIdHints = listOf("com.instagram.android:id/clips_tab"),
-                textHints = listOf("Reels")
+                viewIdHints = listOf("clips_viewer_view_pager", "clips_viewer_video_layout"),
+                textHints = emptyList()
             ),
             BlockedSection(
                 packageName = "com.google.android.youtube",
                 label = "YouTube Shorts",
-                viewIdHints = listOf("com.google.android.youtube:id/reel_recycler"),
-                textHints = listOf("Shorts")
+                viewIdHints = listOf("reel_recycler", "reel_player_page_container"),
+                textHints = emptyList()
             ),
             BlockedSection(
                 packageName = "com.zhiliaoapp.musically",
                 label = "TikTok For You feed",
+                // TikTok obfuscates its view ids and changes them per build, so
+                // there is no default that survives an update. Left empty on
+                // purpose: an honest blank the user can fill beats a hint that
+                // silently matches the wrong thing. TikTok is also almost
+                // entirely feed, so blocking the app outright is usually right.
                 viewIdHints = emptyList(),
-                textHints = listOf("For You")
+                textHints = emptyList()
             )
         )
     }

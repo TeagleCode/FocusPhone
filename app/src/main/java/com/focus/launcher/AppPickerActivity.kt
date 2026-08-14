@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,6 +22,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.focus.launcher.data.AppCatalog
@@ -62,6 +64,9 @@ private fun AppPickerScreen() {
     var social by remember { mutableStateOf(store.socialPackages()) }
     var editing by remember { mutableStateOf<LaunchableApp?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
+    // Only one relaxation may be outstanding, so an unnoticed leftover request
+    // silently refuses every later one. It has to be visible.
+    var pending by remember { mutableStateOf(store.pendingUnlock()) }
 
     // Loaded off the main thread; the cache means this is usually instant.
     var installed by remember { mutableStateOf(AppCatalog.snapshot().orEmpty()) }
@@ -82,15 +87,18 @@ private fun AppPickerScreen() {
             app = app,
             existing = rules[app.packageName],
             isSocial = app.packageName in social,
+            pending = pending,
             onSocialToggle = {
                 notice = toggleSocial(store, context, app.packageName)
                 social = store.socialPackages()
+                pending = store.pendingUnlock()
                 FocusGuardService.refreshScope()
             },
             onDismiss = { editing = null },
             onSave = { rule ->
                 notice = applyRuleChange(store, context, rule)
                 rules = store.rulesByPackage()
+                pending = store.pendingUnlock()
                 editing = null
                 scope.launch { Enforcer(context).apply() }
             }
@@ -124,6 +132,37 @@ private fun AppPickerScreen() {
         notice?.let {
             Spacer(Modifier.height(14.dp))
             Text(it, color = Focus.Secondary, fontSize = Focus.MetaSize, lineHeight = 20.sp)
+        }
+
+        pending?.let { p ->
+            Spacer(Modifier.height(14.dp))
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(Focus.RadiusRow))
+                    .background(Focus.SurfacePressed)
+                    .clickable {
+                        store.setPendingUnlock(null)
+                        pending = null
+                        notice = "Request cancelled. You can make a new one now."
+                    }
+                    .padding(horizontal = 16.dp, vertical = 13.dp)
+            ) {
+                Text(
+                    "one request is already pending",
+                    color = Focus.Primary,
+                    fontSize = 13.sp,
+                    letterSpacing = 1.sp
+                )
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    "\"${labelForPending(context, p)}\" — until it is confirmed or " +
+                        "cancelled, no other restriction can be loosened. Tap to cancel it.",
+                    color = Focus.Tertiary,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp
+                )
+            }
         }
 
         Spacer(Modifier.height(18.dp))
@@ -254,6 +293,14 @@ private fun toggleSocial(store: PolicyStore, context: Context, pkg: String): Str
         "confirming. It is still flagged for now."
 }
 
+/** What saving the current selection would actually do. */
+private data class Outcome(val headline: String, val detail: String)
+
+private fun labelForPending(context: Context, p: PendingUnlock): String = when (p.kind) {
+    UnlockKind.DOMAIN -> p.target
+    else -> Enforcer(context).labelOf(p.target)
+}
+
 /** Only one relaxation may be outstanding at a time; a second is refused out loud. */
 private fun alreadyPending(store: PolicyStore, context: Context): String? {
     val existing = store.pendingUnlock() ?: return null
@@ -270,6 +317,7 @@ private fun RuleEditor(
     app: LaunchableApp,
     existing: AppRule?,
     isSocial: Boolean,
+    pending: PendingUnlock?,
     onSocialToggle: () -> Unit,
     onDismiss: () -> Unit,
     onSave: (AppRule) -> Unit
@@ -320,8 +368,9 @@ private fun RuleEditor(
             Spacer(Modifier.height(10.dp))
             BasicTextField(
                 value = minutes,
-                onValueChange = { minutes = it.filter(Char::isDigit).take(3) },
+                onValueChange = { minutes = it.filter(Char::isDigit).take(4) },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 textStyle = TextStyle(color = Focus.Primary, fontSize = 22.sp),
                 cursorBrush = SolidColor(Focus.Secondary),
                 decorationBox = { inner ->
@@ -375,17 +424,41 @@ private fun RuleEditor(
             type = type,
             dailyLimitMinutes = minutes.toIntOrNull() ?: 30
         )
-        if (existing != null && !proposed.isTighterThan(existing) && proposed != existing) {
-            Spacer(Modifier.height(20.dp))
-            Text(
-                "This loosens the rule, so it will not take effect for 24 hours.",
-                color = Focus.Secondary,
-                fontSize = Focus.MetaSize,
-                lineHeight = 20.sp
+
+        // Raising a time limit is a relaxation like any other, so it waits.
+        // That is the design, but the old screen only whispered it, which
+        // read as "the app will not let me set a bigger number".
+        val outcome = when {
+            proposed == existing -> Outcome("no change", "Nothing to save.")
+            proposed.isTighterThan(existing) ->
+                Outcome("applies now", "Making a restriction stricter is instant.")
+            pending != null -> Outcome(
+                "cannot request yet",
+                "Another request is already pending, and only one is allowed at a " +
+                    "time. Cancel it on the previous screen first."
+            )
+            else -> Outcome(
+                "waits 24 hours",
+                "This gives you more access, so it does not take effect now. It " +
+                    "becomes available to confirm in 24 hours; until then the " +
+                    "current rule stands."
             )
         }
 
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(22.dp))
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(Focus.RadiusRow))
+                .background(Focus.Surface)
+                .padding(16.dp)
+        ) {
+            Text(outcome.headline, color = Focus.Primary, fontSize = 14.sp, letterSpacing = 1.sp)
+            Spacer(Modifier.height(6.dp))
+            Text(outcome.detail, color = Focus.Tertiary, fontSize = 12.sp, lineHeight = 18.sp)
+        }
+
+        Spacer(Modifier.height(20.dp))
 
         Row {
             Text(
