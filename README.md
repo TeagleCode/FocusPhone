@@ -28,9 +28,25 @@ instant and free.
 Download the APK from the [latest release](../../releases/latest) and open it
 on your phone.
 
-**Android will warn you that the file is unsafe.** That is expected: this is
-signed with a debug key, not a Play Store certificate. Tap through it
-(*More details* → *Install anyway*, or *Install without scanning*).
+**Android will warn you that the file is unsafe.** That is expected for
+anything installed outside the Play Store. Tap through it (*More details* →
+*Install anyway*, or *Install without scanning*).
+
+### Two builds
+
+| Flavour | Where | Site blocking |
+|---|---|---|
+| `full` | the APK on this page | **yes** |
+| `play` | Google Play | no |
+
+Google requires `VpnService` to be an app's core purpose, and the DNS site
+filter is a secondary feature here, so the Play build ships without it rather
+than arguing the point through review. The flavour drops the service from the
+manifest entirely, not just the button — R8 leaves no trace of it in the
+binary. Everything else is identical.
+
+The two are signed with different keys, so you cannot update from one to the
+other; switching means uninstalling first, which clears your rules.
 
 ---
 
@@ -77,7 +93,7 @@ does not watch, and recover time that passed while the service was off.
 
 | Feature | What it needs |
 |---|---|
-| Website blocking | Tap **start site filter** in *sites and in-app sections*, and allow the VPN prompt. Android only permits one VPN, so this cannot run alongside a commercial VPN. |
+| Website blocking | *GitHub build only.* Tap **start site filter** in *sites and in-app sections*, and allow the VPN prompt. Android only permits one VPN, so this cannot run alongside a commercial VPN. |
 | Reading quizzes | An [Anthropic API key](https://console.anthropic.com/) pasted into settings. Stored on your device only, never sent anywhere but Anthropic, never shown back in full. |
 | Hard blocking | Device Owner — see [SETUP.md](SETUP.md). Requires a factory reset. |
 
@@ -164,13 +180,20 @@ Being honest about this matters more than sounding impressive.
 Requires JDK 17 or 21 and the Android SDK.
 
 ```sh
-./gradlew assembleRelease     # app/build/outputs/apk/release/app-release.apk
+./gradlew assembleFullRelease   # APK with site blocking, for sideloading
+./gradlew bundlePlayRelease     # AAB without it, for the Play Console
+./gradlew testPlayDebugUnitTest # the challenge generator tests
 ```
 
-Build the debug variant if you are developing, but **install the release build
-on a real phone** — Compose without R8 and its baseline profile is several
-times slower, which on a mid-range device is the difference between a launcher
-that feels instant and one that visibly stutters.
+Outputs land in `app/build/outputs/`. Release builds are signed with the upload
+key described in `keystore.properties`, which is not in git; without it the
+build falls back to the debug key, so an unsigned upload fails at the Console
+rather than shipping.
+
+Build the debug variant if you are developing, but **install a release build on
+a real phone** — Compose without R8 and its baseline profile is several times
+slower, which on a mid-range device is the difference between a launcher that
+feels instant and one that visibly stutters.
 
 [SPEC.md](SPEC.md) is the source of truth for behaviour. Read it before
-changing anything.
+changing anything. [play/submission.md](play/submission.md) covers publishing.

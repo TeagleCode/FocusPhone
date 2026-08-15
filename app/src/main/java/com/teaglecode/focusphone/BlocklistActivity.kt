@@ -80,143 +80,149 @@ private fun BlocklistScreen() {
             .padding(horizontal = Focus.Gutter)
     ) {
         Spacer(Modifier.height(72.dp))
-        Text(
-            "blocked sites",
-            color = Focus.Primary,
-            fontSize = 26.sp,
-            fontWeight = FontWeight.Light,
-            letterSpacing = Focus.Tracking
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Entries also cover subdomains. Blocking works by refusing DNS lookups, " +
-                "so it applies in every browser and app. Only one VPN can be active " +
-                "on Android, so this cannot run alongside a commercial VPN.",
-            color = Focus.Tertiary,
-            fontSize = Focus.MetaSize,
-            lineHeight = 20.sp
-        )
 
-        notice?.let {
-            Spacer(Modifier.height(14.dp))
-            Text(it, color = Focus.Secondary, fontSize = Focus.MetaSize, lineHeight = 20.sp)
-        }
-
-        Spacer(Modifier.height(20.dp))
-
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            BasicTextField(
-                value = newDomain,
-                onValueChange = { newDomain = it.trim().lowercase() },
-                singleLine = true,
-                textStyle = TextStyle(color = Focus.Primary, fontSize = 17.sp),
-                cursorBrush = SolidColor(Focus.Secondary),
-                decorationBox = { inner ->
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(Focus.RadiusField))
-                            .background(Focus.Surface)
-                            .padding(horizontal = 18.dp, vertical = 15.dp)
-                    ) {
-                        if (newDomain.isEmpty()) {
-                            Text("example.com", color = Focus.Tertiary, fontSize = 17.sp)
-                        }
-                        inner()
-                    }
-                },
-                modifier = Modifier.weight(1f)
-            )
-            Spacer(Modifier.width(10.dp))
+        // Absent from the Play build, which ships without the VpnService the
+        // filter runs on. R8 folds the constant and drops the whole branch,
+        // so this is not a hidden feature waiting to be switched on.
+        if (BuildConfig.SITE_FILTER) {
             Text(
-                "add",
+                "blocked sites",
+                color = Focus.Primary,
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Light,
+                letterSpacing = Focus.Tracking
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Entries also cover subdomains. Blocking works by refusing DNS lookups, " +
+                    "so it applies in every browser and app. Only one VPN can be active " +
+                    "on Android, so this cannot run alongside a commercial VPN.",
+                color = Focus.Tertiary,
+                fontSize = Focus.MetaSize,
+                lineHeight = 20.sp
+            )
+
+            notice?.let {
+                Spacer(Modifier.height(14.dp))
+                Text(it, color = Focus.Secondary, fontSize = Focus.MetaSize, lineHeight = 20.sp)
+            }
+
+            Spacer(Modifier.height(20.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BasicTextField(
+                    value = newDomain,
+                    onValueChange = { newDomain = it.trim().lowercase() },
+                    singleLine = true,
+                    textStyle = TextStyle(color = Focus.Primary, fontSize = 17.sp),
+                    cursorBrush = SolidColor(Focus.Secondary),
+                    decorationBox = { inner ->
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(Focus.RadiusField))
+                                .background(Focus.Surface)
+                                .padding(horizontal = 18.dp, vertical = 15.dp)
+                        ) {
+                            if (newDomain.isEmpty()) {
+                                Text("example.com", color = Focus.Tertiary, fontSize = 17.sp)
+                            }
+                            inner()
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    "add",
+                    color = Focus.Primary,
+                    fontSize = 16.sp,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(Focus.RadiusRow))
+                        .background(Focus.Surface)
+                        .clickable {
+                            val entry = newDomain.removePrefix("www.")
+                            if (entry.contains(".") && !entry.contains("/")) {
+                                store.addBlockedDomain(entry)
+                                domains = store.blockedDomains().sorted()
+                                newDomain = ""
+                                notice = null
+                            } else {
+                                notice = "Enter a bare domain, like example.com — " +
+                                    "DNS blocking cannot match a path."
+                            }
+                        }
+                        .padding(horizontal = 18.dp, vertical = 15.dp)
+                )
+            }
+
+            Spacer(Modifier.height(14.dp))
+
+            domains.forEach { domain ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 3.dp)
+                        .clip(RoundedCornerShape(Focus.RadiusRow))
+                        .background(Focus.Surface)
+                        .padding(horizontal = 16.dp, vertical = 13.dp)
+                ) {
+                    Text(domain, color = Focus.Primary, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                    // Removing a site is a relaxation, so it goes through the same
+                    // 24-hour delay as unblocking an app.
+                    Text(
+                        "request removal",
+                        color = Focus.Secondary,
+                        fontSize = 12.sp,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(Focus.RadiusRow))
+                            .clickable { notice = requestDomainRemoval(store, domain) }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            // The service starts asynchronously, so its state is re-read on a tick
+            // rather than once at first composition — otherwise the button keeps
+            // saying "start" after the filter is already up.
+            var vpnTick by remember { mutableStateOf(0) }
+            LaunchedEffect(Unit) {
+                while (true) {
+                    kotlinx.coroutines.delay(1_000)
+                    vpnTick++
+                }
+            }
+            val running = remember(vpnTick) { SiteBlockerVpnService.isRunning() }
+            Text(
+                if (running) "stop site filter" else "start site filter",
                 color = Focus.Primary,
                 fontSize = 16.sp,
                 modifier = Modifier
                     .clip(RoundedCornerShape(Focus.RadiusRow))
                     .background(Focus.Surface)
                     .clickable {
-                        val entry = newDomain.removePrefix("www.")
-                        if (entry.contains(".") && !entry.contains("/")) {
-                            store.addBlockedDomain(entry)
-                            domains = store.blockedDomains().sorted()
-                            newDomain = ""
-                            notice = null
+                        if (running) {
+                            context.startService(
+                                Intent(context, SiteBlockerVpnService::class.java)
+                                    .setAction(SiteBlockerVpnService.ACTION_STOP)
+                            )
                         } else {
-                            notice = "Enter a bare domain, like example.com — " +
-                                "DNS blocking cannot match a path."
+                            val consent = VpnService.prepare(context)
+                            if (consent != null) context.startActivity(consent)
+                            else context.startForegroundService(
+                                Intent(context, SiteBlockerVpnService::class.java)
+                            )
                         }
+                        notice = null
                     }
-                    .padding(horizontal = 18.dp, vertical = 15.dp)
+                    .padding(horizontal = 22.dp, vertical = 14.dp)
             )
+
+            Spacer(Modifier.height(44.dp))
         }
-
-        Spacer(Modifier.height(14.dp))
-
-        domains.forEach { domain ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 3.dp)
-                    .clip(RoundedCornerShape(Focus.RadiusRow))
-                    .background(Focus.Surface)
-                    .padding(horizontal = 16.dp, vertical = 13.dp)
-            ) {
-                Text(domain, color = Focus.Primary, fontSize = 16.sp, modifier = Modifier.weight(1f))
-                // Removing a site is a relaxation, so it goes through the same
-                // 24-hour delay as unblocking an app.
-                Text(
-                    "request removal",
-                    color = Focus.Secondary,
-                    fontSize = 12.sp,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(Focus.RadiusRow))
-                        .clickable { notice = requestDomainRemoval(store, domain) }
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                )
-            }
-        }
-
-        Spacer(Modifier.height(16.dp))
-
-        // The service starts asynchronously, so its state is re-read on a tick
-        // rather than once at first composition — otherwise the button keeps
-        // saying "start" after the filter is already up.
-        var vpnTick by remember { mutableStateOf(0) }
-        LaunchedEffect(Unit) {
-            while (true) {
-                kotlinx.coroutines.delay(1_000)
-                vpnTick++
-            }
-        }
-        val running = remember(vpnTick) { SiteBlockerVpnService.isRunning() }
-        Text(
-            if (running) "stop site filter" else "start site filter",
-            color = Focus.Primary,
-            fontSize = 16.sp,
-            modifier = Modifier
-                .clip(RoundedCornerShape(Focus.RadiusRow))
-                .background(Focus.Surface)
-                .clickable {
-                    if (running) {
-                        context.startService(
-                            Intent(context, SiteBlockerVpnService::class.java)
-                                .setAction(SiteBlockerVpnService.ACTION_STOP)
-                        )
-                    } else {
-                        val consent = VpnService.prepare(context)
-                        if (consent != null) context.startActivity(consent)
-                        else context.startForegroundService(
-                            Intent(context, SiteBlockerVpnService::class.java)
-                        )
-                    }
-                    notice = null
-                }
-                .padding(horizontal = 22.dp, vertical = 14.dp)
-        )
-
-        Spacer(Modifier.height(44.dp))
 
         Text(
             "in-app sections",

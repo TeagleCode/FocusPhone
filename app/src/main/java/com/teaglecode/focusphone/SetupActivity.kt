@@ -68,8 +68,28 @@ private fun SetupScreen() {
     var probe by remember { mutableStateOf(0) }
     ObserveResume { probe++ }
 
+    // Google requires an accessibility app to disclose what the service reads
+    // before the user is sent to enable it, in the app itself and not only in
+    // the privacy policy. Routing the step through this screen also means the
+    // person switching it on has actually been told what it can see.
+    var showDisclosure by remember { mutableStateOf(false) }
+
     val steps = remember(probe) {
-        buildSteps(context, store, enforcer)
+        buildSteps(context, store, enforcer, onAccessibility = { showDisclosure = true })
+    }
+
+    if (showDisclosure) {
+        AccessibilityDisclosure(
+            onDecline = { showDisclosure = false },
+            onAccept = {
+                showDisclosure = false
+                context.startActivity(
+                    Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }
+        )
+        return
     }
 
     Column(
@@ -131,16 +151,17 @@ private fun SetupScreen() {
 private fun buildSteps(
     context: Context,
     store: PolicyStore,
-    enforcer: Enforcer
+    enforcer: Enforcer,
+    onAccessibility: () -> Unit
 ): List<Step> {
     val isHome = isDefaultLauncher(context)
     val isOwner = enforcer.isDeviceOwner()
     val hasUsage = enforcer.hasUsageAccess()
     val guardOn = FocusGuardService.isEnabled(context)
-    val vpnReady = VpnService.prepare(context) == null
+    val vpnReady = BuildConfig.SITE_FILTER && VpnService.prepare(context) == null
     val key = store.apiKeyFingerprint()
 
-    return listOf(
+    return listOfNotNull(
         Step(
             title = "set as home screen",
             detail = "Press home and choose Focus, then Always. This also matters for " +
@@ -162,12 +183,7 @@ private fun buildSteps(
                 "menu, and choose Allow restricted settings.",
             status = if (guardOn) "enabled" else "off — nothing is being blocked",
             done = guardOn,
-            action = {
-                context.startActivity(
-                    Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
-            }
+            action = onAccessibility
         ),
         Step(
             title = "usage access",
@@ -199,7 +215,10 @@ private fun buildSteps(
             done = isOwner,
             optional = true
         ),
-        Step(
+        // Site blocking is absent from the Play build, so the step that asks
+        // for VPN consent has to go with it — a checklist entry for a feature
+        // that is not there is worse than no entry at all.
+        if (!BuildConfig.SITE_FILTER) null else Step(
             title = "vpn consent",
             detail = "Only needed for site blocking. Android allows one VPN at a " +
                 "time, so this cannot run alongside a commercial VPN.",
@@ -329,6 +348,112 @@ private fun HonestConstraints() {
             lineHeight = 19.sp,
             modifier = Modifier.padding(bottom = 8.dp)
         )
+    }
+}
+
+/**
+ * Shown before the user is handed to system settings to switch the guard on.
+ *
+ * An accessibility service can read the screen, which is a serious thing to
+ * hand an app, and Google requires the disclosure to be made in the app rather
+ * than buried in a privacy policy. It is written to be read by the person
+ * granting it: what it sees, what it cannot see, and where the data goes.
+ */
+@Composable
+private fun AccessibilityDisclosure(onDecline: () -> Unit, onAccept: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(Focus.Ink)
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = Focus.Gutter)
+    ) {
+        Spacer(Modifier.height(72.dp))
+        Text(
+            "before you turn this on",
+            color = Focus.Primary,
+            fontSize = 26.sp,
+            fontWeight = FontWeight.Light,
+            letterSpacing = Focus.Tracking
+        )
+        Spacer(Modifier.height(16.dp))
+        Text(
+            "Focus blocks apps using Android's accessibility service. Accessibility " +
+                "services can read screen content, so it matters exactly what this " +
+                "one does with it.",
+            color = Focus.Secondary,
+            fontSize = 15.sp,
+            lineHeight = 23.sp
+        )
+
+        Spacer(Modifier.height(26.dp))
+        Text("it does three things", color = Focus.Tertiary, fontSize = 12.sp, letterSpacing = 1.2.sp)
+        Spacer(Modifier.height(10.dp))
+        listOf(
+            "Notices when an app you have restricted comes to the front, and sends " +
+                "you back to the home screen.",
+            "Counts the minutes you spend in apps you have given a time limit.",
+            "Reads the identifiers of on-screen elements in apps where you blocked a " +
+                "section, so it can tell a short-form video feed from the rest of the app."
+        ).forEach {
+            Text(
+                "— $it",
+                color = Focus.Secondary,
+                fontSize = 13.sp,
+                lineHeight = 20.sp,
+                modifier = Modifier.padding(bottom = 9.dp)
+            )
+        }
+
+        Spacer(Modifier.height(20.dp))
+        Text("what it cannot see", color = Focus.Tertiary, fontSize = 12.sp, letterSpacing = 1.2.sp)
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "It receives events only from the apps you have selected. That list is " +
+                "enforced by Android, not by Focus, so every other app on this phone " +
+                "— your banking, your messages, your email — is invisible to it.\n\n" +
+                "Screen content is checked in memory to decide whether to block, then " +
+                "discarded. It is never written to storage, never logged, and never " +
+                "sent off this device.\n\n" +
+                "Focus has no account, no analytics, no ads and no trackers. Your rules " +
+                "and your times stay on the phone.",
+            color = Focus.Secondary,
+            fontSize = 13.sp,
+            lineHeight = 20.sp
+        )
+
+        Spacer(Modifier.height(20.dp))
+        Text(
+            "You can switch the service off again at any time in " +
+                "Settings → Accessibility, and blocking stops immediately.",
+            color = Focus.Ghost,
+            fontSize = 12.sp,
+            lineHeight = 19.sp
+        )
+
+        Spacer(Modifier.height(30.dp))
+        Text(
+            "i understand — open settings",
+            color = Focus.Primary,
+            fontSize = 16.sp,
+            modifier = Modifier
+                .clip(RoundedCornerShape(Focus.RadiusRow))
+                .background(Focus.Surface)
+                .clickable(onClick = onAccept)
+                .padding(horizontal = 24.dp, vertical = 14.dp)
+        )
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "not now",
+            color = Focus.Secondary,
+            fontSize = 15.sp,
+            modifier = Modifier
+                .clip(RoundedCornerShape(Focus.RadiusRow))
+                .clickable(onClick = onDecline)
+                .padding(horizontal = 24.dp, vertical = 14.dp)
+        )
+        Spacer(Modifier.height(48.dp))
     }
 }
 

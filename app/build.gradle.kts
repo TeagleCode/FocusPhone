@@ -1,8 +1,19 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+// The upload key lives outside version control. A clone without it still
+// builds — it just falls back to the debug key, which Play refuses, so an
+// accidental unsigned upload fails at the Console rather than shipping.
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+val hasUploadKey = keystoreProperties.containsKey("storeFile")
 
 android {
     namespace = "com.teaglecode.focusphone"
@@ -12,8 +23,19 @@ android {
         applicationId = "com.teaglecode.focusphone"
         minSdk = 33
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.2.1"
+        versionCode = 5
+        versionName = "1.0.0"
+    }
+
+    signingConfigs {
+        if (hasUploadKey) {
+            create("upload") {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
@@ -29,9 +51,24 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // Signed with the debug key by choice: it keeps a single install
-            // identity, at the cost of the usual Play Protect warning.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (hasUploadKey) "upload" else "debug")
+        }
+    }
+
+    // Google requires VpnService to be an app's core purpose. Site blocking is
+    // a secondary feature here, so the Play build ships without it rather than
+    // arguing the point during review. The flavour removes the service from the
+    // manifest as well as hiding the UI — a declared-but-unused VpnService is
+    // still picked up by Play's scanners.
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("play") {
+            dimension = "distribution"
+            buildConfigField("boolean", "SITE_FILTER", "false")
+        }
+        create("full") {
+            dimension = "distribution"
+            buildConfigField("boolean", "SITE_FILTER", "true")
         }
     }
 
@@ -46,6 +83,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

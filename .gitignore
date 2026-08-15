@@ -12,3 +12,8 @@ local.properties
 *.aab
 *.keystore
 *.jks
+
+# Play upload key — losing these is unrecoverable, leaking them lets anyone
+# ship an update as you. Back them up outside the repo.
+/keystore/
+/keystore.properties

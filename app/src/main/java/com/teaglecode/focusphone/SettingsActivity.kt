@@ -264,7 +264,7 @@ private fun SettingsScreen() {
         NavLink("choose apps") {
             context.startActivity(Intent(context, AppPickerActivity::class.java))
         }
-        NavLink("sites and in-app sections") {
+        NavLink(if (BuildConfig.SITE_FILTER) "sites and in-app sections" else "in-app sections") {
             context.startActivity(Intent(context, BlocklistActivity::class.java))
         }
         NavLink("daily agenda") {

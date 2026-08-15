@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The Play build carries no VpnService.
+
+    Google's policy requires VpnService to be an app's core functionality.
+    Website filtering is a secondary feature of a blocking launcher, so rather
+    than argue that during review the Play flavour drops it entirely. Hiding
+    the button would not have been enough: Play's static analysis reads the
+    manifest, and a declared VpnService triggers the VPN policy whether or not
+    anything ever starts it.
+
+    FOREGROUND_SERVICE_SPECIAL_USE goes with it — the DNS filter was the only
+    thing that needed it, and an unexplained special-use declaration is its own
+    review question.
+
+    Site blocking still ships in the `full` flavour on GitHub.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"
+        tools:node="remove" />
+
+    <application>
+        <service
+            android:name=".policy.SiteBlockerVpnService"
+            tools:node="remove" />
+    </application>
+</manifest>

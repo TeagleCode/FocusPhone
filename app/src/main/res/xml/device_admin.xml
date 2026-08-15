@@ -1,7 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    Deliberately empty.
+
+    The only device-policy call this app makes is setPackagesSuspended, which
+    requires Device Owner rather than any declared policy, so nothing here is
+    needed for it to work.
+
+    force-lock and wipe-data were declared here originally and never called.
+    Shipping an app that holds the power to factory-reset a phone it never
+    resets is indefensible on its own terms, and it is the kind of thing a
+    reviewer decompiles and asks about. If it is not used, it is not claimed.
+-->
 <device-admin>
-    <uses-policies>
-        <force-lock />
-        <wipe-data />
-    </uses-policies>
+    <uses-policies />
 </device-admin>

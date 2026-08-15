@@ -218,6 +218,13 @@ A local `VpnService` acting as a DNS filter. Parse outbound UDP/53 packets,
 read the QNAME, drop the packet if it matches the blocklist. Matching covers
 the domain and all subdomains.
 
+**Present in the `full` flavour only.** Google requires `VpnService` to be an
+app's core purpose, and this is a secondary feature, so the `play` flavour
+removes the service from the merged manifest and gates every reference behind
+`BuildConfig.SITE_FILTER`. R8 folds the constant, so the Play binary contains
+no VPN code at all — verify with a symbol check on `classes.dex`, not by
+reading the source.
+
 - Works across every browser and app, since it operates below them.
 - Android permits only one active VPN, so this cannot coexist with a
   commercial VPN. Say so in the UI.

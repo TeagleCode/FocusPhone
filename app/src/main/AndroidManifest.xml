@@ -2,7 +2,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <!--
+        QUERY_ALL_PACKAGES was declared here and was never needed. Every
+        package this app touches is one with a launcher entry — the app list,
+        the picker, the labels on block notices — and the <queries> element
+        below already grants visibility of exactly those. The permission is
+        one of Play's sensitive declarations, so dropping something that was
+        doing nothing removes a review question and an annual renewal.
+    -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -18,10 +25,17 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <!-- Resolving the current home app, to report whether Focus is it. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
     </queries>
 
     <application
         android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="Focus"
         android:supportsRtl="true"
         android:theme="@style/Theme.Focus">
