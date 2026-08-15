@@ -1,4 +1,4 @@
-package com.focus.launcher
+package com.teaglecode.focusphone
 
 import android.content.Intent
 import android.os.Bundle
@@ -28,14 +28,14 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.focus.launcher.data.AppRule
-import com.focus.launcher.data.PendingUnlock
-import com.focus.launcher.data.PolicyStore
-import com.focus.launcher.data.RestrictionType
-import com.focus.launcher.data.UnlockKind
-import com.focus.launcher.gate.ChallengeGenerator
-import com.focus.launcher.policy.Enforcer
-import com.focus.launcher.ui.Focus
+import com.teaglecode.focusphone.data.AppRule
+import com.teaglecode.focusphone.data.PendingUnlock
+import com.teaglecode.focusphone.data.PolicyStore
+import com.teaglecode.focusphone.data.RestrictionType
+import com.teaglecode.focusphone.data.UnlockKind
+import com.teaglecode.focusphone.gate.ChallengeGenerator
+import com.teaglecode.focusphone.policy.Enforcer
+import com.teaglecode.focusphone.ui.Focus
 import java.util.concurrent.TimeUnit
 
 class SettingsActivity : ComponentActivity() {

@@ -1,4 +1,4 @@
-package com.focus.launcher.ui
+package com.teaglecode.focusphone.ui
 
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Text
@@ -9,8 +9,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
-import com.focus.launcher.data.QuoteFont
-import com.focus.launcher.data.QuoteStyle
+import com.teaglecode.focusphone.data.QuoteFont
+import com.teaglecode.focusphone.data.QuoteStyle
 
 fun QuoteFont.toFontFamily(): FontFamily = when (this) {
     QuoteFont.DEFAULT -> FontFamily.Default

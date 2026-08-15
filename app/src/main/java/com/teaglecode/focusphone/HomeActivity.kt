@@ -1,4 +1,4 @@
-package com.focus.launcher
+package com.teaglecode.focusphone
 
 import android.content.Intent
 import android.os.Bundle
@@ -38,20 +38,20 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.focus.launcher.data.AppCatalog
-import com.focus.launcher.data.AppearanceStore
-import com.focus.launcher.data.BlockNotice
-import com.focus.launcher.data.LaunchableApp
-import com.focus.launcher.data.PolicyStore
-import com.focus.launcher.data.TodoStore
-import com.focus.launcher.policy.AppState
-import com.focus.launcher.policy.EnforcementStatus
-import com.focus.launcher.policy.Enforcer
-import com.focus.launcher.policy.FocusGuardService
-import com.focus.launcher.policy.PolicySnapshot
-import com.focus.launcher.policy.PolicyWorker
-import com.focus.launcher.ui.Focus
-import com.focus.launcher.ui.QuoteBlock
+import com.teaglecode.focusphone.data.AppCatalog
+import com.teaglecode.focusphone.data.AppearanceStore
+import com.teaglecode.focusphone.data.BlockNotice
+import com.teaglecode.focusphone.data.LaunchableApp
+import com.teaglecode.focusphone.data.PolicyStore
+import com.teaglecode.focusphone.data.TodoStore
+import com.teaglecode.focusphone.policy.AppState
+import com.teaglecode.focusphone.policy.EnforcementStatus
+import com.teaglecode.focusphone.policy.Enforcer
+import com.teaglecode.focusphone.policy.FocusGuardService
+import com.teaglecode.focusphone.policy.PolicySnapshot
+import com.teaglecode.focusphone.policy.PolicyWorker
+import com.teaglecode.focusphone.ui.Focus
+import com.teaglecode.focusphone.ui.QuoteBlock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -500,7 +500,7 @@ private fun DayCell(
     isSelected: Boolean,
     isToday: Boolean,
     isFuture: Boolean,
-    progress: com.focus.launcher.data.AgendaProgress?,
+    progress: com.teaglecode.focusphone.data.AgendaProgress?,
     modifier: Modifier,
     onClick: () -> Unit
 ) {

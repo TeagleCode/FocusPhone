@@ -1,4 +1,4 @@
-package com.focus.launcher.policy
+package com.teaglecode.focusphone.policy
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
@@ -16,9 +16,9 @@ import android.provider.Settings
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import com.focus.launcher.data.BlockReason
-import com.focus.launcher.data.BlockedSection
-import com.focus.launcher.data.PolicyStore
+import com.teaglecode.focusphone.data.BlockReason
+import com.teaglecode.focusphone.data.BlockedSection
+import com.teaglecode.focusphone.data.PolicyStore
 
 /**
  * The layer that actually stops an app from being used.
@@ -370,7 +370,7 @@ class FocusGuardService : AccessibilityService() {
         /** What "the feed is open" means, as a share of the screen. */
         private const val WIDTH_FRACTION = 0.7f
         private const val HEIGHT_FRACTION = 0.5f
-        private const val NO_MATCH = "com.focus.launcher.nomatch"
+        private const val NO_MATCH = "com.teaglecode.focusphone.nomatch"
 
         @Volatile
         private var instance: FocusGuardService? = null

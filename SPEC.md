@@ -258,7 +258,7 @@ they do not:
    Without this, time limits silently do nothing.
 3. **Device Owner** — cannot be granted from inside the app. Show the exact
    ADB command and explain it requires a device with no accounts configured:
-   `adb shell dpm set-device-owner com.focus.launcher/.policy.FocusDeviceAdminReceiver`
+   `adb shell dpm set-device-owner com.teaglecode.focusphone/.policy.FocusDeviceAdminReceiver`
    Show clearly whether it is currently active.
 4. **Accessibility service** — optional; only needed for section blocking.
 5. **VPN consent** — optional; only needed for site blocking.

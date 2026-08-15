@@ -1,4 +1,4 @@
-package com.focus.launcher.gate
+package com.teaglecode.focusphone.gate
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue

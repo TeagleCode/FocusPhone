@@ -1,4 +1,4 @@
-package com.focus.launcher
+package com.teaglecode.focusphone
 
 import android.content.Context
 import android.content.Intent
@@ -24,13 +24,13 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.focus.launcher.data.BlockedSection
-import com.focus.launcher.data.PendingUnlock
-import com.focus.launcher.data.PolicyStore
-import com.focus.launcher.data.UnlockKind
-import com.focus.launcher.policy.FocusGuardService
-import com.focus.launcher.policy.SiteBlockerVpnService
-import com.focus.launcher.ui.Focus
+import com.teaglecode.focusphone.data.BlockedSection
+import com.teaglecode.focusphone.data.PendingUnlock
+import com.teaglecode.focusphone.data.PolicyStore
+import com.teaglecode.focusphone.data.UnlockKind
+import com.teaglecode.focusphone.policy.FocusGuardService
+import com.teaglecode.focusphone.policy.SiteBlockerVpnService
+import com.teaglecode.focusphone.ui.Focus
 
 /**
  * Two lists in one screen: domains the DNS filter should drop, and in-app

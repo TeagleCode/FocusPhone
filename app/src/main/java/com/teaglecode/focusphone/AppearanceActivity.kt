@@ -1,4 +1,4 @@
-package com.focus.launcher
+package com.teaglecode.focusphone
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -24,11 +24,11 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.focus.launcher.data.AppearanceStore
-import com.focus.launcher.data.QuoteFont
-import com.focus.launcher.ui.Focus
-import com.focus.launcher.ui.QuoteBlock
-import com.focus.launcher.ui.toFontFamily
+import com.teaglecode.focusphone.data.AppearanceStore
+import com.teaglecode.focusphone.data.QuoteFont
+import com.teaglecode.focusphone.ui.Focus
+import com.teaglecode.focusphone.ui.QuoteBlock
+import com.teaglecode.focusphone.ui.toFontFamily
 
 /**
  * The quote shown at the bottom of the launcher, and the only place the

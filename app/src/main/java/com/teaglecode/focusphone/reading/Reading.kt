@@ -1,9 +1,9 @@
-package com.focus.launcher.reading
+package com.teaglecode.focusphone.reading
 
 import android.content.Context
 import android.net.Uri
-import com.focus.launcher.data.PolicyStore
-import com.focus.launcher.policy.Enforcer
+import com.teaglecode.focusphone.data.PolicyStore
+import com.teaglecode.focusphone.policy.Enforcer
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader

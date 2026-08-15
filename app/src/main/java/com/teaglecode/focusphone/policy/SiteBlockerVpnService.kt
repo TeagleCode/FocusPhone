@@ -1,4 +1,4 @@
-package com.focus.launcher.policy
+package com.teaglecode.focusphone.policy
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -7,7 +7,7 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import android.util.Log
-import com.focus.launcher.data.PolicyStore
+import com.teaglecode.focusphone.data.PolicyStore
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.DatagramPacket
@@ -179,7 +179,7 @@ class SiteBlockerVpnService : VpnService() {
     }
 
     companion object {
-        const val ACTION_STOP = "com.focus.launcher.STOP_VPN"
+        const val ACTION_STOP = "com.teaglecode.focusphone.STOP_VPN"
         private const val CHANNEL = "focus_vpn"
         private const val NOTIF_ID = 42
         private const val TAG = "FocusVpn"

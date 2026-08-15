@@ -1,4 +1,4 @@
-package com.focus.launcher.gate
+package com.teaglecode.focusphone.gate
 
 import kotlin.math.ceil
 import kotlin.math.ln

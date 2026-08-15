@@ -1,4 +1,4 @@
-package com.focus.launcher.data
+package com.teaglecode.focusphone.data
 
 import android.content.Context
 

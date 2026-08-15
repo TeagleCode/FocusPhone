@@ -1,4 +1,4 @@
-package com.focus.launcher.policy
+package com.teaglecode.focusphone.policy
 
 /**
  * Just enough IPv4 + UDP + DNS to read a question name off the tunnel and put

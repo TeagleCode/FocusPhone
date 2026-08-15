@@ -1,4 +1,4 @@
-package com.focus.launcher
+package com.teaglecode.focusphone
 
 import android.app.role.RoleManager
 import android.content.Context
@@ -26,12 +26,12 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.focus.launcher.data.PolicyStore
-import com.focus.launcher.data.TodoStore
-import com.focus.launcher.policy.Enforcer
-import com.focus.launcher.policy.FocusGuardService
-import com.focus.launcher.policy.SiteBlockerVpnService
-import com.focus.launcher.ui.Focus
+import com.teaglecode.focusphone.data.PolicyStore
+import com.teaglecode.focusphone.data.TodoStore
+import com.teaglecode.focusphone.policy.Enforcer
+import com.teaglecode.focusphone.policy.FocusGuardService
+import com.teaglecode.focusphone.policy.SiteBlockerVpnService
+import com.teaglecode.focusphone.ui.Focus
 
 /**
  * First run, and reachable from settings afterwards.
@@ -191,7 +191,7 @@ private fun buildSteps(
                 "It cannot be granted from inside the app. On a device with no accounts " +
                 "configured, with USB debugging on, run:\n\n" +
                 "adb shell dpm set-device-owner " +
-                "com.focus.launcher/.policy.FocusDeviceAdminReceiver\n\n" +
+                "com.teaglecode.focusphone/.policy.FocusDeviceAdminReceiver\n\n" +
                 "If it fails saying accounts already exist, every account must be " +
                 "removed first — in practice that means a factory reset. Accounts can " +
                 "be added again afterwards.",
@@ -230,8 +230,8 @@ private fun buildSteps(
         Step(
             title = "choose apps to restrict",
             detail = "Apps with no rule are never touched.",
-            status = "${store.rules().count { it.type != com.focus.launcher.data.RestrictionType.NONE }} with a rule",
-            done = store.rules().any { it.type != com.focus.launcher.data.RestrictionType.NONE },
+            status = "${store.rules().count { it.type != com.teaglecode.focusphone.data.RestrictionType.NONE }} with a rule",
+            done = store.rules().any { it.type != com.teaglecode.focusphone.data.RestrictionType.NONE },
             action = {
                 context.startActivity(Intent(context, AppPickerActivity::class.java))
             },

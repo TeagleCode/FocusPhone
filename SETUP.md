@@ -62,13 +62,13 @@ Anything other than `0` and the command below will fail.
 
    ```sh
    adb install -r FocusPhone-v0.1.apk
-   adb shell dpm set-device-owner com.focus.launcher/.policy.FocusDeviceAdminReceiver
+   adb shell dpm set-device-owner com.teaglecode.focusphone/.policy.FocusDeviceAdminReceiver
    ```
 
    Success looks like:
 
    ```
-   Active admin set to component {com.focus.launcher/...FocusDeviceAdminReceiver}
+   Active admin set to component {com.teaglecode.focusphone/...FocusDeviceAdminReceiver}
    ```
 
 6. Sign back into your accounts.
@@ -94,7 +94,7 @@ that another reset is quicker.
 they treat it as a managed-device signal. If you hit that, remove it:
 
 ```sh
-adb shell dpm remove-active-admin com.focus.launcher/.policy.FocusDeviceAdminReceiver
+adb shell dpm remove-active-admin com.teaglecode.focusphone/.policy.FocusDeviceAdminReceiver
 ```
 
 and rely on the accessibility guard, which is softer but has no such problem.

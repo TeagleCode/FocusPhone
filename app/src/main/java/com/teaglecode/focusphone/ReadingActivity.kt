@@ -1,4 +1,4 @@
-package com.focus.launcher
+package com.teaglecode.focusphone
 
 import android.net.Uri
 import android.os.Bundle
@@ -25,9 +25,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.focus.launcher.data.PolicyStore
-import com.focus.launcher.reading.*
-import com.focus.launcher.ui.Focus
+import com.teaglecode.focusphone.data.PolicyStore
+import com.teaglecode.focusphone.reading.*
+import com.teaglecode.focusphone.ui.Focus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext

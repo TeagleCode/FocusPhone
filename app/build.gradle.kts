@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.focus.launcher"
+    namespace = "com.teaglecode.focusphone"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.focus.launcher"
+        applicationId = "com.teaglecode.focusphone"
         minSdk = 33
         targetSdk = 35
         versionCode = 4

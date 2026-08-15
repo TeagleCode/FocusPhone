@@ -1,4 +1,4 @@
-package com.focus.launcher.gate
+package com.teaglecode.focusphone.gate
 
 import java.util.Locale
 import kotlin.math.PI

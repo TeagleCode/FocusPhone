@@ -1,4 +1,4 @@
-package com.focus.launcher.policy
+package com.teaglecode.focusphone.policy
 
 import android.content.Context
 import org.json.JSONObject

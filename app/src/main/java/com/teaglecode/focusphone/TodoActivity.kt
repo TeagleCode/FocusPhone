@@ -1,4 +1,4 @@
-package com.focus.launcher
+package com.teaglecode.focusphone
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -21,11 +21,11 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.focus.launcher.data.PolicyStore
-import com.focus.launcher.data.TodoStore
-import com.focus.launcher.data.TodoTask
-import com.focus.launcher.policy.Enforcer
-import com.focus.launcher.ui.Focus
+import com.teaglecode.focusphone.data.PolicyStore
+import com.teaglecode.focusphone.data.TodoStore
+import com.teaglecode.focusphone.data.TodoTask
+import com.teaglecode.focusphone.policy.Enforcer
+import com.teaglecode.focusphone.ui.Focus
 
 /**
  * The daily agenda editor.

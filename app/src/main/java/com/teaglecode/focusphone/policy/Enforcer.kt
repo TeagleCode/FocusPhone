@@ -1,4 +1,4 @@
-package com.focus.launcher.policy
+package com.teaglecode.focusphone.policy
 
 import android.app.AppOpsManager
 import android.app.admin.DevicePolicyManager
@@ -6,12 +6,12 @@ import android.app.usage.UsageStatsManager
 import android.content.ComponentName
 import android.content.Context
 import android.os.Process
-import com.focus.launcher.data.AppRule
-import com.focus.launcher.data.BlockReason
-import com.focus.launcher.data.PolicyStore
-import com.focus.launcher.data.RestrictionType
-import com.focus.launcher.data.TodoStore
-import com.focus.launcher.data.UnlockKind
+import com.teaglecode.focusphone.data.AppRule
+import com.teaglecode.focusphone.data.BlockReason
+import com.teaglecode.focusphone.data.PolicyStore
+import com.teaglecode.focusphone.data.RestrictionType
+import com.teaglecode.focusphone.data.TodoStore
+import com.teaglecode.focusphone.data.UnlockKind
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date

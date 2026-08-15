@@ -1,4 +1,4 @@
-package com.focus.launcher.ui
+package com.teaglecode.focusphone.ui
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
