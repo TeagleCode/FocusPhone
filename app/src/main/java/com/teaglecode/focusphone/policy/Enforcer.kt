@@ -76,6 +76,10 @@ class Enforcer(private val context: Context) {
     private val usage =
         app.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
 
+    // Read on the guard's thread and from the launcher's IO dispatcher.
+    @Volatile private var systemUsageCache: Map<String, Long> = emptyMap()
+    @Volatile private var systemUsageAtMs = 0L
+
     fun isDeviceOwner(): Boolean = dpm.isDeviceOwnerApp(app.packageName)
 
     /**
@@ -106,13 +110,32 @@ class Enforcer(private val context: Context) {
      * to the second while an app is open; the system figures survive periods
      * when the guard service was off.
      */
-    fun usageTodayByPackage(): Map<String, Long> {
-        val own = ledger.today()
-        val system = runCatching {
-            usage.queryAndAggregateUsageStats(startOfDayMs(), System.currentTimeMillis())
+    fun usageTodayByPackage(): Map<String, Long> = merge(ledger.today(), systemUsage(0L))
+
+    /**
+     * The system's figures, re-read at most once per [maxAgeMs].
+     *
+     * The query walks every package's stats, which is too heavy to repeat on
+     * every window event, and that is why the guard's hot path originally
+     * skipped it altogether. Skipping it was wrong: the ledger only knows time
+     * the guard itself watched, so an allowance already spent before the
+     * service started — or before it was ever switched on — read as untouched,
+     * and a blown limit did not bite. Caching gets both: cheap on the hot path,
+     * and never more than [GUARD_USAGE_TTL_MS] behind the truth.
+     */
+    private fun systemUsage(maxAgeMs: Long): Map<String, Long> {
+        val now = System.currentTimeMillis()
+        if (now - systemUsageAtMs <= maxAgeMs && systemUsageAtMs != 0L) return systemUsageCache
+        systemUsageCache = runCatching {
+            usage.queryAndAggregateUsageStats(startOfDayMs(), now)
                 .mapValues { it.value.totalTimeInForeground }
         }.getOrDefault(emptyMap())
+        systemUsageAtMs = now
+        return systemUsageCache
+    }
 
+    /** Whichever source saw more time; the system's figures may be absent. */
+    private fun merge(own: Map<String, Long>, system: Map<String, Long>): Map<String, Long> {
         if (system.isEmpty()) return own
         return (own.keys + system.keys).associateWith {
             maxOf(own[it] ?: 0L, system[it] ?: 0L)
@@ -132,13 +155,16 @@ class Enforcer(private val context: Context) {
     )
 
     /**
-     * A cheap snapshot for the guard service's hot path: it only ever asks
-     * about the package that just came forward, so the system-wide usage
-     * query is skipped in favour of the ledger alone.
+     * The guard service's hot path, called on every window change.
+     *
+     * Identical to [snapshot] except that the system's usage figures come from
+     * a short-lived cache instead of a fresh query. It must not fall back to
+     * the ledger alone: that is what let an app whose allowance was already
+     * spent stay open, because the guard had not been running to watch it go.
      */
     fun fastSnapshot(): PolicySnapshot = PolicySnapshot(
         rules = store.rulesByPackage(),
-        usageMs = ledger.today(),
+        usageMs = merge(ledger.today(), systemUsage(GUARD_USAGE_TTL_MS)),
         social = store.socialPackages(),
         readingPenalty = store.penaltyDate() == dateKey(Date()),
         taskPenalty = todos.socialLockedToday()
@@ -255,6 +281,13 @@ class Enforcer(private val context: Context) {
     }.getOrDefault(pkg)
 
     companion object {
+        /**
+         * How stale the system's usage figures may be on the guard's hot path.
+         * Ten seconds costs at most one aggregate query per ten seconds of
+         * active use, and bounds how long an app can outlive its allowance.
+         */
+        private const val GUARD_USAGE_TTL_MS = 10_000L
+
         fun dateKey(d: Date): String =
             SimpleDateFormat("yyyy-MM-dd", Locale.US).format(d)
 
