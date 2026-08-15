@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Same Ink as the launcher background, so the icon reads as a hole cut
-         into the home screen rather than a tile sitting on top of it. -->
-    <color name="ic_launcher_background">#FF0F1214</color>
+    <!-- The field the FocusMark sits on, from the source design. Two shades
+         off the launcher's own Ink (#0F1214) and indistinguishable at icon
+         size, but this is the value the mark was drawn against. -->
+    <color name="ic_launcher_background">#FF101010</color>
 </resources>
