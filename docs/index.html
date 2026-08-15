@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FocusPhone — Privacy Policy</title>
+<style>
+  :root { --ink:#0F1214; --bone:#E7E2D8; }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; padding:0 24px 96px;
+    background:var(--ink); color:var(--bone);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans",sans-serif;
+    font-weight:300; letter-spacing:.01em;
+  }
+  main { max-width:660px; margin:0 auto; }
+  header { padding:88px 0 12px; }
+  h1 { font-size:34px; font-weight:300; margin:0 0 6px; letter-spacing:.01em; }
+  .sub { color:rgba(231,226,216,.45); font-size:14px; margin:0 0 56px; }
+  h2 {
+    font-size:13px; font-weight:400; text-transform:uppercase;
+    letter-spacing:.14em; color:rgba(231,226,216,.45);
+    margin:52px 0 14px;
+  }
+  p { margin:0 0 16px; color:rgba(231,226,216,.86); }
+  ul { margin:0 0 16px; padding-left:20px; color:rgba(231,226,216,.86); }
+  li { margin-bottom:9px; }
+  strong { color:var(--bone); font-weight:400; }
+  a { color:var(--bone); text-decoration:underline; text-underline-offset:3px; }
+  .lede {
+    border-left:2px solid rgba(231,226,216,.22);
+    padding:2px 0 2px 20px; margin:0 0 8px;
+    color:var(--bone);
+  }
+  footer {
+    margin-top:72px; padding-top:22px;
+    border-top:1px solid rgba(231,226,216,.12);
+    color:rgba(231,226,216,.35); font-size:13px;
+  }
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <h1>Privacy Policy</h1>
+  <p class="sub">FocusPhone (<code>com.teaglecode.focusphone</code>) · last updated 15 August 2026</p>
+</header>
+
+<p class="lede">
+  FocusPhone does not collect, transmit, or sell any personal data. There are no
+  analytics, no crash reporting, no advertising, and no third-party SDKs of any
+  kind. Everything the app records stays in its own private storage on your
+  phone.
+</p>
+
+<h2>What the app stores</h2>
+
+<p>
+  All of it lives in Android's private per-app storage, readable only by
+  FocusPhone. None of it leaves the device.
+</p>
+
+<ul>
+  <li>The apps you have blocked or time-limited, and their limits.</li>
+  <li>How long you have spent in those apps today, so limits can be enforced.</li>
+  <li>The in-app sections you have chosen to block, and the text and view-id
+      hints used to detect them.</li>
+  <li>Your daily agenda items and whether they are complete.</li>
+  <li>Your chosen quote, font, colour and size.</li>
+  <li>A salted SHA-256 hash of your emergency code, if you set one. The code
+      itself is never stored.</li>
+  <li>Your Anthropic API key, if you supply one for reading quizzes.</li>
+</ul>
+
+<h2>The accessibility service</h2>
+
+<p>
+  Blocking is implemented with Android's <strong>AccessibilityService</strong>
+  API. This is the only mechanism Android offers that can tell which app is in
+  the foreground and close it, so the app cannot function without it.
+</p>
+
+<p>The service is used for exactly three things:</p>
+
+<ul>
+  <li>Noticing when a restricted app comes to the foreground, and returning you
+      to the home screen.</li>
+  <li>Counting the time you spend in a time-limited app.</li>
+  <li>Reading the on-screen view identifiers of apps you have chosen to
+      section-block, so it can tell a short-form video feed from the rest of
+      the app.</li>
+</ul>
+
+<p>
+  <strong>The service is scoped to the apps you have selected and cannot see
+  any others.</strong> The list of packages it receives events from is set at
+  runtime and enforced by Android itself, not by this app. Banking, messaging,
+  email and every other app you have not explicitly restricted are invisible
+  to it.
+</p>
+
+<p>
+  Screen content read by the service is examined in memory to make an immediate
+  block decision and is then discarded. It is never written to storage, never
+  logged, and never transmitted anywhere.
+</p>
+
+<h2>Usage access</h2>
+
+<p>
+  If you grant usage access, the app reads Android's own usage statistics to
+  make its time totals more accurate — specifically to recover time that passed
+  while the accessibility service was off. These figures are used on the device
+  to decide whether a limit has been reached, and are not transmitted.
+</p>
+
+<h2>The one network connection</h2>
+
+<p>
+  FocusPhone makes no network requests at all unless you turn on the optional
+  reading-quiz feature and supply your own
+  <a href="https://console.anthropic.com/">Anthropic API key</a>.
+</p>
+
+<p>
+  When you use that feature, the passage of the book you selected is sent to
+  <code>api.anthropic.com</code> so that comprehension questions can be
+  generated from it. That request goes to Anthropic under your own API key and
+  is governed by
+  <a href="https://www.anthropic.com/legal/privacy">Anthropic's privacy policy</a>
+  and
+  <a href="https://www.anthropic.com/legal/commercial-terms">commercial terms</a>.
+  No identifier of you, your device, or your other apps is included.
+</p>
+
+<p>
+  Your API key is stored on the device, is never displayed back in full, and is
+  never sent anywhere other than Anthropic. If you never enter a key, the app
+  never contacts the network.
+</p>
+
+<h2>Other apps on your device</h2>
+
+<p>
+  As a home screen replacement, the app reads the list of apps that have a
+  launcher icon, so it can draw the app list, launch them, and let you pick
+  which ones to restrict. It does not request the broad
+  <code>QUERY_ALL_PACKAGES</code> permission — it sees only apps you could
+  already open from a home screen, and nothing else. That list is used on the
+  device to draw the launcher and is never transmitted.
+</p>
+
+<h2>Permissions, in plain terms</h2>
+
+<ul>
+  <li><strong>Accessibility</strong> — blocks restricted apps and counts time.
+      Scoped to the apps you choose.</li>
+  <li><strong>Usage access</strong> (optional) — makes time totals accurate.</li>
+  <li><strong>Package visibility</strong> — sees apps that have a launcher
+      icon, so the home screen can list and open them.</li>
+  <li><strong>Internet</strong> — used only for reading quizzes, only with your
+      own API key.</li>
+  <li><strong>Notifications</strong> — tells you when a limit has been
+      reached.</li>
+  <li><strong>Run at startup</strong> — restores your rules after a reboot.</li>
+</ul>
+
+<h2>Children</h2>
+
+<p>
+  FocusPhone is not directed at children and collects no data from anyone,
+  including children.
+</p>
+
+<h2>Deleting your data</h2>
+
+<p>
+  Uninstalling the app removes everything it has stored. There is no account,
+  no server, and no copy of your data anywhere else, so there is nothing left
+  behind and nothing to request the deletion of.
+</p>
+
+<h2>Changes</h2>
+
+<p>
+  If this policy changes, the revised version will be posted at this address
+  with an updated date. Material changes will also be noted in the app's release
+  notes.
+</p>
+
+<h2>Contact</h2>
+
+<p>
+  Questions about this policy:
+  <a href="mailto:david.beridze.2011@gmail.com">david.beridze.2011@gmail.com</a>
+</p>
+
+<footer>
+  Source code: <a href="https://github.com/TeagleCode/FocusPhone">github.com/TeagleCode/FocusPhone</a>
+</footer>
+
+</main>
+</body>
+</html>
