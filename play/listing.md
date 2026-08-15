@@ -1,5 +1,11 @@
 # Play Store listing copy
 
+> **Parked.** FocusPhone is not going on the Play Store — the $25
+> registration was not worth it for an app distributed to a handful of
+> friends. These notes are kept because the engineering they describe is
+> already done and the account requirements will not have changed much if
+> that decision is ever revisited.
+
 Paste-ready. Character counts are against Google's limits.
 
 ---
@@ -157,9 +163,9 @@ match the address on the privacy policy page.
 
 | Asset | File | Spec |
 |---|---|---|
-| App icon | `play/icon-512.png` | 512×512 PNG ✓ |
-| Feature graphic | `play/feature-graphic-1024x500.png` | 1024×500 PNG ✓ |
-| Phone screenshots | **not yet captured** | 2–8, min 320px, max 3840px |
+| App icon | `brand/icon-512.png` | 512×512 PNG ✓ |
+| Feature graphic | `brand/banner.png` | 1024×500 PNG ✓ |
+| Phone screenshots | `docs/screenshots/` | 2–8, min 320px, max 3840px ✓ |
 
 Screenshots have to come off a real device — Play requires them to show the
 actual app, and a launcher with no apps installed on an emulator would look

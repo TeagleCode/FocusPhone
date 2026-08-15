@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="brand/banner.png" alt="focusphone" width="640">
+</p>
+
 # Focus
 
 An Android launcher that replaces your home screen and actually stops you
@@ -23,6 +27,17 @@ instant and free.
 
 ---
 
+## What it looks like
+
+| | | |
+|:--:|:--:|:--:|
+| <img src="docs/screenshots/home.png" width="230"> | <img src="docs/screenshots/gate.png" width="230"> | <img src="docs/screenshots/time-limit.png" width="230"> |
+| **Home.** Clock, agenda, calendar, and a line you wrote yourself. | **The gate.** One of more than 200,000 problems. Answer it or stay out. | **A rule.** Twenty minutes of Instagram a day, and it counts as social. |
+| <img src="docs/screenshots/settings.png" width="230"> | <img src="docs/screenshots/setup.png" width="230"> | <img src="docs/screenshots/disclosure.png" width="230"> |
+| **Settings.** How many problems the gate costs is your choice. | **Setup.** Live status, because the two that matter fail silently. | **Before you enable it.** What the service reads, and what it cannot. |
+
+---
+
 ## Install
 
 Download the APK from the [latest release](../../releases/latest) and open it
@@ -32,21 +47,21 @@ on your phone.
 anything installed outside the Play Store. Tap through it (*More details* →
 *Install anyway*, or *Install without scanning*).
 
-### Two builds
+**This is not on the Play Store**, and there is no plan to put it there. The
+APK on the releases page is the whole distribution.
 
-| Flavour | Where | Site blocking |
+<details>
+<summary>There are two build flavours, and you want <code>full</code></summary>
+
+| Flavour | Site blocking | Why it exists |
 |---|---|---|
-| `full` | the APK on this page | **yes** |
-| `play` | Google Play | no |
+| `full` | **yes** | What ships here. Build with `assembleFullRelease`. |
+| `play` | no | Drops the `VpnService`, which Google requires to be an app's core purpose. Left in the tree in case the store ever becomes worth the trouble. |
 
-Google requires `VpnService` to be an app's core purpose, and the DNS site
-filter is a secondary feature here, so the Play build ships without it rather
-than arguing the point through review. The flavour drops the service from the
-manifest entirely, not just the button — R8 leaves no trace of it in the
-binary. Everything else is identical.
-
-The two are signed with different keys, so you cannot update from one to the
-other; switching means uninstalling first, which clears your rules.
+The `play` flavour removes the service from the manifest rather than only
+hiding the button, so R8 leaves no trace of it in the binary. Everything else
+is identical.
+</details>
 
 ---
 

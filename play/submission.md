@@ -1,5 +1,11 @@
 # Publishing FocusPhone to Google Play
 
+> **Parked.** FocusPhone is not going on the Play Store — the $25
+> registration was not worth it for an app distributed to a handful of
+> friends. These notes are kept because the engineering they describe is
+> already done and the account requirements will not have changed much if
+> that decision is ever revisited.
+
 Everything on the engineering side is done. What is left is account setup and
 form-filling, most of which only you can do.
 
@@ -60,9 +66,9 @@ All the copy is in [listing.md](listing.md). Graphics:
 
 | Asset | Status |
 |---|---|
-| `icon-512.png` | ready |
-| `feature-graphic-1024x500.png` | ready |
-| Phone screenshots (2–8) | **still needed — plug in your phone** |
+| `brand/icon-512.png` | ready |
+| `brand/banner.png` | ready |
+| Phone screenshots (2–8) | `docs/screenshots/` |
 
 ---
 
@@ -196,22 +202,15 @@ new account can take up to seven.
 
 ---
 
-## 7. Before you submit — the one thing still unverified
+## 7. Package visibility, verified
 
 `QUERY_ALL_PACKAGES` was removed because a launcher does not need it: the
 `<queries>` element declaring `ACTION_MAIN` + `CATEGORY_LAUNCHER` already grants
 visibility of every app with a launcher icon, which is every app this launcher
 can show or block. That is the documented replacement for the permission.
 
-It builds clean, but **it has not been run on a phone yet**. Install the new
-build and confirm the app list still fills, then upload:
-
-```sh
-JAVA_HOME=/home/david/tools/jdk21 ./gradlew installPlayRelease
-```
-
-If the list is empty — it should not be — put the permission back in
-`app/src/main/AndroidManifest.xml` and declare it as a launcher use case.
+Confirmed on a Galaxy M14 running Android 15 — the app picker fills normally
+with the permission gone.
 
 ---
 
