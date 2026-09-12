@@ -103,10 +103,12 @@ class HomeActivity : ComponentActivity() {
 private const val NOTICE_TTL_MS = 60_000L
 
 /**
- * Eight cells across a phone leaves roughly 42dp each, so the icon is sized to
- * sit inside that with margin rather than to a launcher's usual 48dp.
+ * Four across rather than eight leaves roughly 84dp per cell, which is enough
+ * for the 48dp icon every other launcher uses and a comfortable tap target
+ * around it.
  */
-private val DOCK_ICON = 34.dp
+private const val DOCK_COLUMNS = 4
+private val DOCK_ICON = 48.dp
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -387,13 +389,14 @@ private fun AgendaCard(
 // ---- Dock -----------------------------------------------------------------
 
 /**
- * The eight pinned apps, one tap each.
+ * The eight pinned apps, one tap each, as two rows of four.
  *
- * No labels. At eight across a phone there is no room for text that anyone
- * could read, and a dock is recognised by icon and position the way a home row
- * is — the searchable list above is what you use when you have to think about
- * it. Cells are equally weighted rather than fixed, so the row fits whatever
- * width it is given instead of overflowing on a narrow screen.
+ * Four across leaves roughly double the width per cell that eight did, which
+ * is the difference between a 34dp icon and a properly tappable one. No
+ * labels: a dock is recognised by icon and position the way a home row is, and
+ * the searchable list above is what you use when you have to think about it.
+ * Cells are equally weighted rather than fixed, so a row fits whatever width
+ * it is given instead of overflowing on a narrow screen.
  */
 @Composable
 private fun DockBar(
@@ -403,40 +406,46 @@ private fun DockBar(
 ) {
     if (packages.isEmpty()) return
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        packages.forEach { pkg ->
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(Focus.RadiusRow))
-                    .clickable { onOpen(pkg) }
-                    .padding(vertical = 10.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                val icon = icons[pkg]
-                if (icon != null) {
-                    Image(
-                        bitmap = icon,
-                        contentDescription = AppCatalog.labelFor(pkg),
-                        modifier = Modifier.size(DOCK_ICON)
-                    )
-                } else {
-                    // Same footprint as the real icon, so the row does not
-                    // reflow when the bitmaps finish rasterising.
+    Column(Modifier.fillMaxWidth().padding(top = 2.dp)) {
+        packages.chunked(DOCK_COLUMNS).forEach { row ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                row.forEach { pkg ->
                     Box(
-                        Modifier
-                            .size(DOCK_ICON)
-                            .clip(CircleShape)
-                            .background(Focus.Surface)
-                    )
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(Focus.RadiusRow))
+                            .clickable { onOpen(pkg) }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        DockIcon(icons[pkg], AppCatalog.labelFor(pkg))
+                    }
                 }
+                // A short last row keeps its icons under the ones above rather
+                // than spreading to fill the width.
+                repeat(DOCK_COLUMNS - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
+    }
+}
+
+@Composable
+private fun DockIcon(icon: ImageBitmap?, label: String) {
+    if (icon != null) {
+        Image(
+            bitmap = icon,
+            contentDescription = label,
+            modifier = Modifier.size(DOCK_ICON)
+        )
+    } else {
+        // Same footprint as the real icon, so the grid does not reflow when
+        // the bitmaps finish rasterising.
+        Box(
+            Modifier
+                .size(DOCK_ICON)
+                .clip(CircleShape)
+                .background(Focus.Surface)
+        )
     }
 }
 

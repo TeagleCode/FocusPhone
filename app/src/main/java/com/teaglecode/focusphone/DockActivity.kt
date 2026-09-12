@@ -189,33 +189,39 @@ private fun DockPreview(
         )
         return
     }
-    Row(
+    Column(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(Focus.RadiusField))
             .background(Focus.Surface)
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(vertical = 6.dp)
     ) {
-        chosen.forEach { pkg ->
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(Focus.RadiusRow))
-                    .clickable { onRemove(pkg) }
-                    .padding(vertical = 8.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                AppIcon(icons[pkg], 32.dp)
+        // Laid out exactly as the home screen lays it out, so this preview is
+        // the thing itself rather than a differently shaped approximation.
+        chosen.chunked(COLUMNS).forEach { row ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                row.forEach { pkg ->
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(Focus.RadiusRow))
+                            .clickable { onRemove(pkg) }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AppIcon(icons[pkg], 44.dp)
+                    }
+                }
+                // Keeps cells the same width whether the row is full or not,
+                // so icons do not resize as apps are added.
+                repeat(COLUMNS - row.size) { Spacer(Modifier.weight(1f)) }
             }
-        }
-        // Keeps the row's cells the same width whether the dock is full or
-        // not, so icons do not resize as apps are added.
-        repeat(DockStore.SLOTS - chosen.size) {
-            Spacer(Modifier.weight(1f))
         }
     }
 }
+
+/** Matches DOCK_COLUMNS on the home screen. */
+private const val COLUMNS = 4
 
 @Composable
 private fun AppIcon(icon: ImageBitmap?, size: androidx.compose.ui.unit.Dp) {

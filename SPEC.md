@@ -91,8 +91,10 @@ app icons anywhere other than the dock and its picker.
 - Tapping a result launches the app and clears the query.
 - **With an empty query the space is the day, not a void:** today's agenda
   (section 10), and beneath everything the user's own line (section 11).
-- **A dock of up to eight pinned apps**, above the line and always visible.
-  Icons only: at eight across a phone there is no room for readable labels,
+- **A dock of up to eight pinned apps**, above the line and always visible,
+  laid out as two rows of four. Four across leaves roughly 84dp per cell,
+  which is the difference between a cramped 34dp icon and the 48dp every
+  other launcher uses. Icons only: there is no room for readable labels,
   and the point of the dock is the tap you make without thinking. The list
   above is for when you have to think. Seeded on first run by resolving intent
   categories — dialer, messaging, maps, music, camera, browser, gallery,
