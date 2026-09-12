@@ -82,6 +82,11 @@
             android:screenOrientation="portrait" />
 
         <activity
+            android:name=".DockActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
             android:name=".TodoActivity"
             android:exported="false"
             android:screenOrientation="portrait" />

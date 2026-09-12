@@ -267,6 +267,9 @@ private fun SettingsScreen() {
         NavLink(if (BuildConfig.SITE_FILTER) "sites and in-app sections" else "in-app sections") {
             context.startActivity(Intent(context, BlocklistActivity::class.java))
         }
+        NavLink("app dock") {
+            context.startActivity(Intent(context, DockActivity::class.java))
+        }
         NavLink("daily agenda") {
             context.startActivity(Intent(context, TodoActivity::class.java))
         }

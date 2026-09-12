@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -23,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
@@ -41,6 +43,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.teaglecode.focusphone.data.AppCatalog
 import com.teaglecode.focusphone.data.AppearanceStore
 import com.teaglecode.focusphone.data.BlockNotice
+import com.teaglecode.focusphone.data.DockStore
+import com.teaglecode.focusphone.data.IconCache
 import com.teaglecode.focusphone.data.LaunchableApp
 import com.teaglecode.focusphone.data.PolicyStore
 import com.teaglecode.focusphone.data.TodoStore
@@ -56,9 +60,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.text.DateFormatSymbols
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -100,6 +102,12 @@ class HomeActivity : ComponentActivity() {
 /** How long after an interception the launcher still explains it. */
 private const val NOTICE_TTL_MS = 60_000L
 
+/**
+ * Eight cells across a phone leaves roughly 42dp each, so the icon is sized to
+ * sit inside that with margin rather than to a launcher's usual 48dp.
+ */
+private val DOCK_ICON = 34.dp
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun HomeScreen(resetSignal: Int) {
@@ -109,6 +117,7 @@ private fun HomeScreen(resetSignal: Int) {
     val policy = remember { PolicyStore(context) }
     val todos = remember { TodoStore(context) }
     val appearance = remember { AppearanceStore(context) }
+    val dockStore = remember { DockStore(context) }
 
     var query by remember { mutableStateOf("") }
     LaunchedEffect(resetSignal) { query = "" }
@@ -120,7 +129,8 @@ private fun HomeScreen(resetSignal: Int) {
     var status by remember { mutableStateOf<EnforcementStatus?>(null) }
     var quote by remember { mutableStateOf(appearance.quote()) }
     var notice by remember { mutableStateOf<BlockNotice?>(null) }
-    var selectedDate by remember { mutableStateOf(TodoStore.todayKey()) }
+    var dock by remember { mutableStateOf(dockStore.packages()) }
+    var icons by remember { mutableStateOf(IconCache.snapshot()) }
     var agendaVersion by remember { mutableStateOf(0) }
     var socialLocked by remember { mutableStateOf(false) }
 
@@ -130,16 +140,23 @@ private fun HomeScreen(resetSignal: Int) {
         quote = appearance.quote()
         notice = policy.lastBlock()
             ?.takeIf { System.currentTimeMillis() - it.atMs < NOTICE_TTL_MS }
-        selectedDate = TodoStore.todayKey()
         agendaVersion++
 
         scope.launch {
             val loaded = AppCatalog.load(context)
             if (loaded.isNotEmpty()) apps = loaded
             withContext(Dispatchers.IO) {
-                policy.seedSocialIfUnset(loaded.map { it.packageName }.toSet())
+                val installed = loaded.map { it.packageName }.toSet()
+                policy.seedSocialIfUnset(installed)
+                dockStore.seedIfUnset(context, installed)
+                // Ahead of the dock work below: enforcement must not queue
+                // behind icon rasterising on a first run.
                 enforcer.apply()
             }
+            dock = dockStore.packages()
+            // Rasterising happens off the main thread; until it lands the dock
+            // draws placeholders of the same size, so nothing reflows.
+            icons = IconCache.load(context, dock)
             status = withContext(Dispatchers.IO) { enforcer.status() }
             snap = withContext(Dispatchers.IO) { enforcer.snapshot() }
             socialLocked = withContext(Dispatchers.IO) { todos.socialLockedToday() }
@@ -221,11 +238,10 @@ private fun HomeScreen(resetSignal: Int) {
             item(key = "agenda") {
                 AgendaCard(
                     todos = todos,
-                    date = selectedDate,
                     version = agendaVersion,
                     socialLocked = socialLocked,
                     onToggle = { id ->
-                        todos.toggle(selectedDate, id)
+                        todos.toggle(TodoStore.todayKey(), id)
                         agendaVersion++
                         scope.launch {
                             socialLocked = withContext(Dispatchers.IO) { todos.socialLockedToday() }
@@ -235,16 +251,12 @@ private fun HomeScreen(resetSignal: Int) {
                 )
             }
 
-            item(key = "calendar") {
-                MonthCalendar(
-                    todos = todos,
-                    selected = selectedDate,
-                    version = agendaVersion,
-                    onSelect = { selectedDate = it }
-                )
-            }
-
             item(key = "tail") { Spacer(Modifier.height(12.dp)) }
+        }
+
+        DockBar(packages = dock, icons = icons) { pkg ->
+            context.packageManager.getLaunchIntentForPackage(pkg)
+                ?.let { context.startActivity(it) }
         }
 
         if (quote.isSet) {
@@ -264,16 +276,14 @@ private fun HomeScreen(resetSignal: Int) {
 @Composable
 private fun AgendaCard(
     todos: TodoStore,
-    date: String,
     version: Int,
     socialLocked: Boolean,
     onToggle: (String) -> Unit,
     onManage: () -> Unit
 ) {
     val today = TodoStore.todayKey()
-    val editable = date >= today
-    val tasks = remember(date, version) { todos.agenda(date) }
-    val done = remember(date, version) { todos.completed(date) }
+    val tasks = remember(version) { todos.agenda(today) }
+    val done = remember(version) { todos.completed(today) }
     val doneCount = tasks.count { it.id in done }
 
     Column(
@@ -286,7 +296,7 @@ private fun AgendaCard(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                if (date == today) "today" else prettyDate(date),
+                "today",
                 color = Focus.Tertiary,
                 fontSize = 12.sp,
                 letterSpacing = 1.2.sp,
@@ -305,7 +315,7 @@ private fun AgendaCard(
 
         if (tasks.isEmpty()) {
             Text(
-                if (editable) "nothing on the list yet" else "nothing was on the list",
+                "nothing on the list yet",
                 color = Focus.Ghost,
                 fontSize = 15.sp
             )
@@ -317,10 +327,7 @@ private fun AgendaCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(Focus.RadiusRow))
-                        .then(
-                            if (editable) Modifier.clickable { onToggle(task.id) }
-                            else Modifier
-                        )
+                        .clickable { onToggle(task.id) }
                         .padding(vertical = 9.dp)
                 ) {
                     Text(
@@ -350,7 +357,6 @@ private fun AgendaCard(
             when {
                 socialLocked ->
                     "social apps are locked today — yesterday's list was left unfinished"
-                date != today -> "read only"
                 tasks.isEmpty() ->
                     "an empty list has no consequence. add something to make the day count."
                 doneCount == tasks.size ->
@@ -378,163 +384,59 @@ private fun AgendaCard(
     }
 }
 
-// ---- Calendar -------------------------------------------------------------
+// ---- Dock -----------------------------------------------------------------
 
 /**
- * A month at a glance. A day carrying tasks gets a marker beneath it: filled
- * when the list was completed, hollow when it was not.
+ * The eight pinned apps, one tap each.
+ *
+ * No labels. At eight across a phone there is no room for text that anyone
+ * could read, and a dock is recognised by icon and position the way a home row
+ * is — the searchable list above is what you use when you have to think about
+ * it. Cells are equally weighted rather than fixed, so the row fits whatever
+ * width it is given instead of overflowing on a narrow screen.
  */
 @Composable
-private fun MonthCalendar(
-    todos: TodoStore,
-    selected: String,
-    version: Int,
-    onSelect: (String) -> Unit
+private fun DockBar(
+    packages: List<String>,
+    icons: Map<String, ImageBitmap>,
+    onOpen: (String) -> Unit
 ) {
-    val today = TodoStore.todayKey()
-    var anchor by remember { mutableStateOf(monthOf(selected)) }
-    LaunchedEffect(selected) { anchor = monthOf(selected) }
+    if (packages.isEmpty()) return
 
-    val (year, month) = anchor
-    val summary = remember(year, month, version) { todos.monthSummary(year, month) }
-
-    val cal = remember(year, month) {
-        Calendar.getInstance().apply {
-            clear()
-            set(Calendar.YEAR, year)
-            set(Calendar.MONTH, month)
-            set(Calendar.DAY_OF_MONTH, 1)
-        }
-    }
-    val firstDow = cal.firstDayOfWeek
-    val lead = ((cal.get(Calendar.DAY_OF_WEEK) - firstDow) + 7) % 7
-    val dayCount = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
-    val title = remember(year, month) {
-        SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(cal.time).lowercase()
-    }
-
-    Column(
-        Modifier
+    Row(
+        modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .clip(RoundedCornerShape(Focus.RadiusField))
-            .background(Focus.Surface)
-            .padding(horizontal = 14.dp, vertical = 16.dp)
+            .padding(top = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "‹",
-                color = Focus.Secondary,
-                fontSize = 18.sp,
+        packages.forEach { pkg ->
+            Box(
                 modifier = Modifier
+                    .weight(1f)
                     .clip(RoundedCornerShape(Focus.RadiusRow))
-                    .clickable { anchor = shiftMonth(anchor, -1) }
-                    .padding(horizontal = 12.dp, vertical = 4.dp)
-            )
-            Text(
-                title,
-                color = Focus.Tertiary,
-                fontSize = 12.sp,
-                letterSpacing = 1.2.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.weight(1f)
-            )
-            Text(
-                "›",
-                color = Focus.Secondary,
-                fontSize = 18.sp,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(Focus.RadiusRow))
-                    .clickable { anchor = shiftMonth(anchor, 1) }
-                    .padding(horizontal = 12.dp, vertical = 4.dp)
-            )
-        }
-
-        Spacer(Modifier.height(10.dp))
-
-        val headers = remember(firstDow) { weekdayInitials(firstDow) }
-        Row(Modifier.fillMaxWidth()) {
-            headers.forEach {
-                Text(
-                    it,
-                    color = Focus.Ghost,
-                    fontSize = 10.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-
-        Spacer(Modifier.height(6.dp))
-
-        val cells = lead + dayCount
-        val rows = (cells + 6) / 7
-        repeat(rows) { row ->
-            Row(Modifier.fillMaxWidth()) {
-                repeat(7) { col ->
-                    val index = row * 7 + col
-                    val day = index - lead + 1
-                    if (day < 1 || day > dayCount) {
-                        Spacer(Modifier.weight(1f))
-                        return@repeat
-                    }
-                    val key = String.format(Locale.US, "%04d-%02d-%02d", year, month + 1, day)
-                    DayCell(
-                        day = day,
-                        isSelected = key == selected,
-                        isToday = key == today,
-                        isFuture = key > today,
-                        progress = summary[key],
-                        modifier = Modifier.weight(1f),
-                        onClick = { onSelect(key) }
+                    .clickable { onOpen(pkg) }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                val icon = icons[pkg]
+                if (icon != null) {
+                    Image(
+                        bitmap = icon,
+                        contentDescription = AppCatalog.labelFor(pkg),
+                        modifier = Modifier.size(DOCK_ICON)
+                    )
+                } else {
+                    // Same footprint as the real icon, so the row does not
+                    // reflow when the bitmaps finish rasterising.
+                    Box(
+                        Modifier
+                            .size(DOCK_ICON)
+                            .clip(CircleShape)
+                            .background(Focus.Surface)
                     )
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun DayCell(
-    day: Int,
-    isSelected: Boolean,
-    isToday: Boolean,
-    isFuture: Boolean,
-    progress: com.teaglecode.focusphone.data.AgendaProgress?,
-    modifier: Modifier,
-    onClick: () -> Unit
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier
-            .padding(1.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (isSelected) Focus.SurfacePressed else Color.Transparent)
-            .clickable(onClick = onClick)
-            .padding(vertical = 7.dp)
-    ) {
-        Text(
-            day.toString(),
-            color = when {
-                isToday || isSelected -> Focus.Primary
-                isFuture -> Focus.Ghost
-                else -> Focus.Secondary
-            },
-            fontSize = 13.sp
-        )
-        Spacer(Modifier.height(3.dp))
-        Box(
-            Modifier
-                .size(4.dp)
-                .clip(CircleShape)
-                .background(
-                    when {
-                        progress == null || progress.empty -> Color.Transparent
-                        progress.complete -> Focus.Secondary
-                        else -> Focus.Ghost
-                    }
-                )
-        )
     }
 }
 
@@ -757,30 +659,3 @@ private fun msToNextMinute(): Long {
     return 60_000L - (now % 60_000L)
 }
 
-private fun monthOf(dateKey: String): Pair<Int, Int> {
-    val parts = dateKey.split('-')
-    val year = parts.getOrNull(0)?.toIntOrNull() ?: Calendar.getInstance().get(Calendar.YEAR)
-    val month = (parts.getOrNull(1)?.toIntOrNull() ?: 1) - 1
-    return year to month
-}
-
-private fun shiftMonth(anchor: Pair<Int, Int>, delta: Int): Pair<Int, Int> {
-    val total = anchor.first * 12 + anchor.second + delta
-    return Math.floorDiv(total, 12) to Math.floorMod(total, 12)
-}
-
-private fun prettyDate(dateKey: String): String {
-    val parsed = runCatching {
-        SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(dateKey)
-    }.getOrNull() ?: return dateKey
-    return SimpleDateFormat("EEEE d MMMM", Locale.getDefault()).format(parsed).lowercase()
-}
-
-/** Weekday initials starting from the locale's own first day of the week. */
-private fun weekdayInitials(firstDayOfWeek: Int): List<String> {
-    val short = DateFormatSymbols.getInstance().shortWeekdays
-    return (0 until 7).map { offset ->
-        val dow = ((firstDayOfWeek - 1 + offset) % 7) + 1
-        short.getOrNull(dow)?.take(1)?.lowercase() ?: ""
-    }
-}

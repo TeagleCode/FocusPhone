@@ -69,9 +69,12 @@ The tokens live in `ui/Theme.kt`; use them, do not hardcode colours.
 - Horizontal gutter: 24dp everywhere
 - All interface text lowercase, letter-spacing +0.4sp
 - No ripples. Press feedback is a surface tint change.
-- No icons anywhere in the launcher. Text only.
+- Text only, with exactly one exception: the eight-app dock (section 4). A
+  dock is used without reading it, and eight labels across a phone would be
+  too small to read anyway. Everywhere a name can be read, it is text.
 
-Keep this restraint. Do not add accent colours, gradients, or app icons.
+Keep this restraint. Do not add accent colours or gradients, and do not put
+app icons anywhere other than the dock and its picker.
 
 ---
 
@@ -87,8 +90,15 @@ Keep this restraint. Do not add accent colours, gradients, or app icons.
   remaining allowance today, or the reason it is unavailable.
 - Tapping a result launches the app and clears the query.
 - **With an empty query the space is the day, not a void:** today's agenda
-  (section 10) and a month calendar, and beneath everything the user's own
-  line (section 11).
+  (section 10), and beneath everything the user's own line (section 11).
+- **A dock of up to eight pinned apps**, above the line and always visible.
+  Icons only: at eight across a phone there is no room for readable labels,
+  and the point of the dock is the tap you make without thinking. The list
+  above is for when you have to think. Seeded on first run by resolving intent
+  categories — dialer, messaging, maps, music, camera, browser, gallery,
+  contacts — rather than hardcoded package names, because the dialer on a
+  Samsung is not the dialer on a Pixel. Editing it is instant: a dock is a
+  shortcut, not a restriction, so nothing here waits 24 hours.
 - A clearly visible route into settings.
 - Re-apply policy whenever the launcher returns to the foreground.
 
@@ -314,10 +324,9 @@ A todo list that is part of the enforcement, not an accessory.
   **today only** one-off. Both store their creation date, so a task added
   today can never count retroactively against a day that has already ended.
 - Today's list sits on the home screen under the search field, with the tasks
-  tappable to complete. A month calendar underneath marks each day: a filled
-  dot when that day's list was finished, hollow when it was not, nothing when
-  there was no list. Tapping a day shows it; past days are read only, because
-  retroactively ticking yesterday would erase the consequence.
+  tappable to complete. Only today is shown: a month calendar lived here and
+  was removed, because browsing past days invited exactly the retroactive
+  tidying the consequence depends on not being possible.
 
 **Failure consequence.** If any of a day's tasks are left unfinished, the apps
 flagged as social are blocked for the whole of the next day. This is derived

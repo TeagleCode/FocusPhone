@@ -32,7 +32,7 @@ instant and free.
 | | | |
 |:--:|:--:|:--:|
 | <img src="docs/screenshots/home.png" width="230"> | <img src="docs/screenshots/gate.png" width="230"> | <img src="docs/screenshots/time-limit.png" width="230"> |
-| **Home.** Clock, agenda, calendar, and a line you wrote yourself. | **The gate.** One of more than 200,000 problems. Answer it or stay out. | **A rule.** Twenty minutes of Instagram a day, and it counts as social. |
+| **Home.** Clock, agenda, an eight-app dock, and a line you wrote yourself. | **The gate.** One of more than 200,000 problems. Answer it or stay out. | **A rule.** Twenty minutes of Instagram a day, and it counts as social. |
 | <img src="docs/screenshots/settings.png" width="230"> | <img src="docs/screenshots/setup.png" width="230"> | <img src="docs/screenshots/disclosure.png" width="230"> |
 | **Settings.** How many problems the gate costs is your choice. | **Setup.** Live status, because the two that matter fail silently. | **Before you enable it.** What the service reads, and what it cannot. |
 

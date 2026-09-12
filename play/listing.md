@@ -59,7 +59,7 @@ THE HOME SCREEN
 
 A clock, your apps, and nothing else competing for attention. Below the search
 bar sits your daily agenda, so unlocking your phone shows you what you meant
-to do today. There is a month calendar, and a quote you write yourself,
+to do today. A dock of eight apps sits above a quote you write yourself,
 displayed large at the bottom in the font, size and colour you choose.
 
 
