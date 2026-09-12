@@ -6,14 +6,19 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// The upload key lives outside version control. A clone without it still
-// builds — it just falls back to the debug key, which Play refuses, so an
-// accidental unsigned upload fails at the Console rather than shipping.
+// The upload key lives outside version control and is now opt-in.
+//
+// Distribution is a handful of people sideloading from the releases page, and
+// every install out there — including the author's own phone, with its real
+// rules on it — carries the debug key. Signing a release with the upload key
+// by default would produce an APK that silently refuses to install over any
+// of them, so it has to be asked for: -PuseUploadKey.
 val keystoreProperties = Properties().apply {
     val file = rootProject.file("keystore.properties")
     if (file.exists()) file.inputStream().use { load(it) }
 }
-val hasUploadKey = keystoreProperties.containsKey("storeFile")
+val useUploadKey = keystoreProperties.containsKey("storeFile") &&
+    providers.gradleProperty("useUploadKey").isPresent
 
 android {
     namespace = "com.teaglecode.focusphone"
@@ -23,12 +28,12 @@ android {
         applicationId = "com.teaglecode.focusphone"
         minSdk = 33
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.0.0"
+        versionCode = 6
+        versionName = "1.1.0"
     }
 
     signingConfigs {
-        if (hasUploadKey) {
+        if (useUploadKey) {
             create("upload") {
                 storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
                 storePassword = keystoreProperties.getProperty("storePassword")
@@ -51,7 +56,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName(if (hasUploadKey) "upload" else "debug")
+            signingConfig = signingConfigs.getByName(if (useUploadKey) "upload" else "debug")
         }
     }
 

@@ -203,10 +203,11 @@ Requires JDK 17 or 21 and the Android SDK.
 ./gradlew testPlayDebugUnitTest # the challenge generator tests
 ```
 
-Outputs land in `app/build/outputs/`. Release builds are signed with the upload
-key described in `keystore.properties`, which is not in git; without it the
-build falls back to the debug key, so an unsigned upload fails at the Console
-rather than shipping.
+Outputs land in `app/build/outputs/`. Release builds are signed with the
+**debug key**, which is what every install in the wild carries — signing with
+anything else produces an APK that refuses to install over them. The private
+upload key in `keystore.properties` (not in git) is opt-in with
+`-PuseUploadKey`, and switching to it costs everyone one uninstall.
 
 Build the debug variant if you are developing, but **install a release build on
 a real phone** — Compose without R8 and its baseline profile is several times
