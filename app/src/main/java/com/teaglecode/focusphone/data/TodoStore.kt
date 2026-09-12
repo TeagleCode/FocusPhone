@@ -1,6 +1,7 @@
 package com.teaglecode.focusphone.data
 
 import android.content.Context
+import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -20,7 +21,14 @@ data class TodoTask(
     val id: String,
     val text: String,
     val recurring: Boolean,
-    val createdDate: String
+    val createdDate: String,
+    /**
+     * When true a tap is not enough: the task is only complete once a clip of
+     * it has been recorded. Borrowed from the Witness app, which cannot be
+     * read from the outside, so the mechanic is rebuilt here rather than
+     * synced.
+     */
+    val requireVideo: Boolean = false
 )
 
 /** Today's progress, for the home screen header. */
@@ -31,8 +39,9 @@ data class AgendaProgress(val done: Int, val total: Int) {
 
 class TodoStore(context: Context) {
 
+    private val app = context.applicationContext
     private val prefs =
-        context.applicationContext.getSharedPreferences("focus_todo", Context.MODE_PRIVATE)
+        app.getSharedPreferences("focus_todo", Context.MODE_PRIVATE)
 
     // ---- Tasks -----------------------------------------------------------
 
@@ -45,7 +54,8 @@ class TodoStore(context: Context) {
                 id = o.getString("id"),
                 text = o.getString("text"),
                 recurring = o.optBoolean("recurring", false),
-                createdDate = o.getString("created")
+                createdDate = o.getString("created"),
+                requireVideo = o.optBoolean("proof", false)
             )
         }
     }
@@ -58,17 +68,24 @@ class TodoStore(context: Context) {
                 put("text", t.text)
                 put("recurring", t.recurring)
                 put("created", t.createdDate)
+                put("proof", t.requireVideo)
             })
         }
         prefs.edit().putString(KEY_TASKS, arr.toString()).apply()
     }
 
-    fun add(text: String, recurring: Boolean, onDate: String = todayKey()): TodoTask {
+    fun add(
+        text: String,
+        recurring: Boolean,
+        requireVideo: Boolean = false,
+        onDate: String = todayKey()
+    ): TodoTask {
         val task = TodoTask(
             id = java.util.UUID.randomUUID().toString().take(8),
             text = text.trim(),
             recurring = recurring,
-            createdDate = onDate
+            createdDate = onDate,
+            requireVideo = requireVideo
         )
         saveTasks(tasks() + task)
         return task
@@ -76,6 +93,11 @@ class TodoStore(context: Context) {
 
     fun remove(id: String) {
         saveTasks(tasks().filterNot { it.id == id })
+        proofDir().listFiles()?.filter { it.name.endsWith("_$id.mp4") }?.forEach { it.delete() }
+    }
+
+    fun setRequireVideo(id: String, required: Boolean) {
+        saveTasks(tasks().map { if (it.id == id) it.copy(requireVideo = required) else it })
     }
 
     fun rename(id: String, text: String) {
@@ -162,6 +184,55 @@ class TodoStore(context: Context) {
         }
     }
 
+    // ---- Proof -----------------------------------------------------------
+
+    /**
+     * Clips live in app-private storage, never the gallery. Proof of your own
+     * discipline is nobody else's business, and the filename carries the key
+     * so nothing has to be stored alongside it to find the clip again.
+     */
+    fun proofDir(): File = File(app.filesDir, "proof").apply { mkdirs() }
+
+    fun proofFile(date: String, taskId: String) = File(proofDir(), "${date}_$taskId.mp4")
+
+    fun hasProof(date: String, taskId: String) = proofFile(date, taskId).let {
+        it.exists() && it.length() > 0
+    }
+
+    /** Marks [id] done on [date]; the clip is already written by the camera. */
+    fun completeWithProof(date: String, id: String) {
+        if (!hasProof(date, id)) return
+        if (!isDone(date, id)) toggle(date, id)
+    }
+
+    /**
+     * Un-ticking a proof task destroys the clip, so getting it back means
+     * filming it again. A completion that survives its evidence would be a tap
+     * with extra steps.
+     */
+    fun clearProof(date: String, id: String) {
+        proofFile(date, id).delete()
+        if (isDone(date, id)) toggle(date, id)
+    }
+
+    /** Bytes currently held in clips, for the honest note in the todo screen. */
+    fun proofBytes(): Long = proofDir().listFiles()?.sumOf { it.length() } ?: 0L
+
+    /**
+     * Clips are orders of magnitude larger than completion records, so they
+     * are kept for [CLIP_KEEP_DAYS] rather than the 45 days a tick survives.
+     */
+    fun pruneClips() {
+        val cutoff = dayKey(-CLIP_KEEP_DAYS)
+        proofDir().listFiles()?.forEach { f ->
+            // Only a name this function actually understands is eligible for
+            // deletion. A malformed one sorts before any real date, which
+            // would quietly delete clips that were never old.
+            val prefix = f.name.substringBefore('_')
+            if (DATE_KEY.matches(prefix) && prefix < cutoff) f.delete()
+        }
+    }
+
     // ---- The consequence -------------------------------------------------
 
     /**
@@ -188,6 +259,14 @@ class TodoStore(context: Context) {
         private const val KEY_TASKS = "tasks"
         private const val KEY_DONE = "completed"
         private const val KEEP_DAYS = 45
+
+        private val DATE_KEY = Regex("""\d{4}-\d{2}-\d{2}""")
+
+        /** A tick costs bytes; a clip costs megabytes. */
+        private const val CLIP_KEEP_DAYS = 7
+
+        /** Hints to the camera app. Proof needs to be recognisable, not good. */
+        const val CLIP_SECONDS = 15
 
         fun todayKey(): String = dayKey(0)
 

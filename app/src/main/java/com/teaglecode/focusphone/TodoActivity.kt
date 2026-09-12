@@ -52,6 +52,7 @@ private fun TodoScreen() {
     var version by remember { mutableStateOf(0) }
     var draft by remember { mutableStateOf("") }
     var recurring by remember { mutableStateOf(true) }
+    var requireVideo by remember { mutableStateOf(false) }
 
     val today = TodoStore.todayKey()
     val tasks = remember(version) { store.tasks() }
@@ -148,6 +149,8 @@ private fun TodoScreen() {
             Toggle("every day", recurring) { recurring = true }
             Spacer(Modifier.width(8.dp))
             Toggle("today only", !recurring) { recurring = false }
+            Spacer(Modifier.width(8.dp))
+            Toggle("film it", requireVideo) { requireVideo = !requireVideo }
             Spacer(Modifier.weight(1f))
             Text(
                 "add",
@@ -158,8 +161,9 @@ private fun TodoScreen() {
                     .background(Focus.Surface)
                     .clickable {
                         if (draft.isNotBlank()) {
-                            store.add(draft, recurring)
+                            store.add(draft, recurring, requireVideo)
                             draft = ""
+                            requireVideo = false
                             version++
                         }
                     }
@@ -171,11 +175,26 @@ private fun TodoScreen() {
 
         // ---- Lists -------------------------------------------------------
 
+        Spacer(Modifier.height(4.dp))
+        val clipBytes = remember(version) { store.proofBytes() }
+        Text(
+            "Turn on \"film it\" and a tap will not complete the task — only a clip " +
+                "will. Clips stay on this phone, never reach the gallery, and are " +
+                "deleted after a week." +
+                if (clipBytes > 0) " Holding ${clipBytes / 1_000_000}MB right now." else "",
+            color = Focus.Ghost,
+            fontSize = 12.sp,
+            lineHeight = 19.sp
+        )
+
+        Spacer(Modifier.height(28.dp))
+
         TaskGroup(
             title = "every day",
             empty = "no daily tasks",
             tasks = daily,
-            onRemove = { store.remove(it); version++ }
+            store = store,
+            onChanged = { version++ }
         )
 
         Spacer(Modifier.height(20.dp))
@@ -184,7 +203,8 @@ private fun TodoScreen() {
             title = "today only",
             empty = "nothing extra today",
             tasks = oneOff,
-            onRemove = { store.remove(it); version++ }
+            store = store,
+            onChanged = { version++ }
         )
 
         Spacer(Modifier.height(28.dp))
@@ -220,8 +240,11 @@ private fun TaskGroup(
     title: String,
     empty: String,
     tasks: List<TodoTask>,
-    onRemove: (String) -> Unit
+    store: TodoStore,
+    onChanged: () -> Unit
 ) {
+    val context = LocalContext.current
+    val today = TodoStore.todayKey()
     Text(title, color = Focus.Tertiary, fontSize = 12.sp, letterSpacing = 1.2.sp)
     Spacer(Modifier.height(10.dp))
     if (tasks.isEmpty()) {
@@ -238,14 +261,42 @@ private fun TaskGroup(
                 .background(Focus.Surface)
                 .padding(horizontal = 16.dp, vertical = 14.dp)
         ) {
-            Text(task.text, color = Focus.Primary, fontSize = 16.sp, modifier = Modifier.weight(1f))
+            Column(Modifier.weight(1f)) {
+                Text(task.text, color = Focus.Primary, fontSize = 16.sp)
+                Text(
+                    if (task.requireVideo) "proof required" else "a tap is enough",
+                    color = Focus.Ghost,
+                    fontSize = 11.sp,
+                    letterSpacing = 1.sp,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(Focus.RadiusRow))
+                        .clickable {
+                            store.setRequireVideo(task.id, !task.requireVideo)
+                            onChanged()
+                        }
+                        .padding(top = 3.dp, end = 6.dp)
+                )
+            }
+            // Only today's clip is offered: older ones are swept within a week
+            // and reviewing last Tuesday is not what the clip is for.
+            if (store.hasProof(today, task.id)) {
+                Text(
+                    "watch",
+                    color = Focus.Secondary,
+                    fontSize = 12.sp,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(Focus.RadiusRow))
+                        .clickable { Proof.view(context, store, today, task.id) }
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                )
+            }
             Text(
                 "remove",
                 color = Focus.Ghost,
                 fontSize = 12.sp,
                 modifier = Modifier
                     .clip(RoundedCornerShape(Focus.RadiusRow))
-                    .clickable { onRemove(task.id) }
+                    .clickable { store.remove(task.id); onChanged() }
                     .padding(horizontal = 10.dp, vertical = 6.dp)
             )
         }

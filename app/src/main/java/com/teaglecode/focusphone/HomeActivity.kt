@@ -48,6 +48,7 @@ import com.teaglecode.focusphone.data.IconCache
 import com.teaglecode.focusphone.data.LaunchableApp
 import com.teaglecode.focusphone.data.PolicyStore
 import com.teaglecode.focusphone.data.TodoStore
+import com.teaglecode.focusphone.data.TodoTask
 import com.teaglecode.focusphone.policy.AppState
 import com.teaglecode.focusphone.policy.EnforcementStatus
 import com.teaglecode.focusphone.policy.Enforcer
@@ -135,6 +136,16 @@ private fun HomeScreen(resetSignal: Int) {
     var icons by remember { mutableStateOf(IconCache.snapshot()) }
     var agendaVersion by remember { mutableStateOf(0) }
     var socialLocked by remember { mutableStateOf(false) }
+    var proofNote by remember { mutableStateOf<String?>(null) }
+
+    val record = rememberProofRecorder(todos) { result ->
+        agendaVersion++
+        proofNote = when (result) {
+            ProofResult.NoCamera -> "No camera app answered, so there is no way to film this one."
+            ProofResult.Cancelled -> null
+            ProofResult.Recorded -> null
+        }
+    }
 
     ObserveResume {
         // Whatever was open has ended; credit its time before anything else.
@@ -151,6 +162,9 @@ private fun HomeScreen(resetSignal: Int) {
                 val installed = loaded.map { it.packageName }.toSet()
                 policy.seedSocialIfUnset(installed)
                 dockStore.seedIfUnset(context, installed)
+                // Clips are megabytes each, so they are swept every time the
+                // launcher comes forward rather than waiting for a job.
+                todos.pruneClips()
                 // Ahead of the dock work below: enforcement must not queue
                 // behind icon rasterising on a first run.
                 enforcer.apply()
@@ -242,8 +256,19 @@ private fun HomeScreen(resetSignal: Int) {
                     todos = todos,
                     version = agendaVersion,
                     socialLocked = socialLocked,
-                    onToggle = { id ->
-                        todos.toggle(TodoStore.todayKey(), id)
+                    note = proofNote,
+                    onTap = { task ->
+                        proofNote = null
+                        val day = TodoStore.todayKey()
+                        when {
+                            // Only footage counts: an unfilmed proof task is
+                            // ticked by the camera coming back, never by a tap.
+                            task.requireVideo && !todos.isDone(day, task.id) ->
+                                record(day, task.id)
+                            task.requireVideo ->
+                                todos.clearProof(day, task.id)
+                            else -> todos.toggle(day, task.id)
+                        }
                         agendaVersion++
                         scope.launch {
                             socialLocked = withContext(Dispatchers.IO) { todos.socialLockedToday() }
@@ -280,7 +305,8 @@ private fun AgendaCard(
     todos: TodoStore,
     version: Int,
     socialLocked: Boolean,
-    onToggle: (String) -> Unit,
+    note: String?,
+    onTap: (TodoTask) -> Unit,
     onManage: () -> Unit
 ) {
     val today = TodoStore.todayKey()
@@ -329,7 +355,7 @@ private fun AgendaCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(Focus.RadiusRow))
-                        .clickable { onToggle(task.id) }
+                        .clickable { onTap(task) }
                         .padding(vertical = 9.dp)
                 ) {
                     Text(
@@ -346,6 +372,15 @@ private fun AgendaCard(
                         textDecoration = if (isDone) TextDecoration.LineThrough else null,
                         modifier = Modifier.weight(1f)
                     )
+                    if (task.requireVideo) {
+                        Text(
+                            if (isDone) "filmed" else "film it",
+                            color = if (isDone) Focus.Ghost else Focus.Secondary,
+                            fontSize = 11.sp,
+                            letterSpacing = 1.sp
+                        )
+                        Spacer(Modifier.width(10.dp))
+                    }
                     if (task.recurring) {
                         Text("daily", color = Focus.Ghost, fontSize = 11.sp, letterSpacing = 1.sp)
                     }
@@ -357,6 +392,7 @@ private fun AgendaCard(
 
         Text(
             when {
+                note != null -> note
                 socialLocked ->
                     "social apps are locked today — yesterday's list was left unfinished"
                 tasks.isEmpty() ->

@@ -96,6 +96,21 @@
             android:exported="false"
             android:screenOrientation="portrait" />
 
+        <!--
+            Lets the system camera write a proof clip straight into app-private
+            storage. grantUriPermissions is per-intent and read/write access
+            dies with the capture, so no other app gains standing access.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.proof"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <receiver
             android:name=".policy.BootReceiver"
             android:exported="true">

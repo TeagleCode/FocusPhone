@@ -323,7 +323,18 @@ safety requirement, not a preference.
 A todo list that is part of the enforcement, not an accessory.
 
 - Two kinds of item: a **daily** task that reappears every morning, and a
-  **today only** one-off. Both store their creation date, so a task added
+  **today only** one-off. Either can additionally **require video proof**: a
+  tap will not complete it, only a clip will. The idea is taken from the
+  Witness app, which stores its data in a private WebView IndexedDB behind no
+  provider, service or intent, so it cannot be read from outside — the
+  mechanic is rebuilt here rather than synced.
+- Proof is filmed by `ACTION_VIDEO_CAPTURE`, never an in-app recorder: handing
+  off to the camera the phone already has costs no CAMERA or RECORD_AUDIO
+  permission and no encoder. Clips are written straight into app-private
+  storage through a `FileProvider` grant that dies with the capture, never
+  enter the gallery, and are swept after 7 days — a tick costs bytes, a clip
+  costs megabytes. Un-ticking destroys the clip: a completion that outlives
+  its evidence is a tap with extra steps. Both store their creation date, so a task added
   today can never count retroactively against a day that has already ended.
 - Today's list sits on the home screen under the search field, with the tasks
   tappable to complete. Only today is shown: a month calendar lived here and

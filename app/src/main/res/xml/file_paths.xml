@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Only the proof directory is shared, and only far enough for the camera app
+    to write one clip into it. Nothing else in app storage is reachable, and
+    clips never enter the gallery.
+-->
+<paths>
+    <files-path name="proof" path="proof/" />
+</paths>

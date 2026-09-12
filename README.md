@@ -22,6 +22,9 @@ instant and free.
   and app at once.
 - **A daily agenda** sits on the home screen. Leave a day's tasks unfinished
   and the apps you flagged as social are locked for the whole of the next day.
+- **Video proof**, per task. Turn on *film it* and a tap will not complete it —
+  only footage will. Clips stay on the phone, never reach the gallery, and are
+  deleted after a week.
 - **Daily reading** — open an EPUB, answer five comprehension questions about
   what you actually read. Fail, and restricted apps get no allowance tomorrow.
 
